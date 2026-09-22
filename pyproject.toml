@@ -1,0 +1,33 @@
+[project]
+name = "jev-reasoning-navigator"
+version = "0.1.0"
+description = "JEV Reasoning Navigator: Cognitive supervision, loop prevention, and anti-hallucination engine for autonomous LLM agents using TypeSafe AI"
+readme = "README.md"
+requires-python = ">=3.11"
+dependencies = [
+    "google-genai>=2.24.0",
+    "networkx>=3.6.1",
+    "pydantic>=2.13.5",
+    "python-dotenv>=1.2.3",
+    "rich>=15.0.0",
+    "typesafe-sdk>=0.7.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=9.1.1",
+    "pytest-asyncio>=0.25.0",
+]
+
+[project.scripts]
+jev-nav = "jev_navigator.cli:main"
+jev-live = "jev_navigator.live_agent:main"
+jev-dash = "jev_navigator.dashboard:main"
+jev-mcp = "jev_navigator.interceptor.mcp_bridge:main"
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["jev_navigator"]

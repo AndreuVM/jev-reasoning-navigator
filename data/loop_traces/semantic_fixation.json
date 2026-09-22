@@ -1,0 +1,38 @@
+{
+  "session_id": "trace_semantic_fixation_03",
+  "goal": "Diagnosticar por qué la aplicación no conecta con la base de datos PostgreSQL",
+  "steps": [
+    {
+      "id": "step_0",
+      "step_type": "thought",
+      "content": "Es probable que el servidor PostgreSQL esté saturado por exceso de conexiones activas en el pool."
+    },
+    {
+      "id": "step_1",
+      "step_type": "tool_call",
+      "content": "Verificar conexiones activas",
+      "tool_name": "run_sql",
+      "tool_args": {"query": "SELECT count(*) FROM pg_stat_activity;"}
+    },
+    {
+      "id": "step_2",
+      "step_type": "observation",
+      "content": "count: 2"
+    },
+    {
+      "id": "step_3",
+      "step_type": "thought",
+      "content": "Sigo convencido de que el problema son las conexiones simultáneas colapsando el servidor PostgreSQL."
+    },
+    {
+      "id": "step_4",
+      "step_type": "thought",
+      "content": "El fallo de conexión se debe inequívocamente a la saturación de conexiones abiertas en PostgreSQL."
+    },
+    {
+      "id": "step_5",
+      "step_type": "thought",
+      "content": "Insisto en que el servidor PostgreSQL está desbordado por un pico masivo de conexiones."
+    }
+  ]
+}

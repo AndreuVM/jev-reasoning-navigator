@@ -1,0 +1,200 @@
+"""Gestor de contexto y memoria episódica para tareas concatenadas en sesiones interactivas de JEV."""
+
+from dataclasses import dataclass, field
+import json
+import re
+from typing import Any, Dict, List, Optional, Set
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+
+@dataclass
+class TaskRecord:
+    """Registro de una tarea completada dentro de una sesión continua."""
+    task_id: int
+    goal: str
+    summary: str
+    final_answer: str
+    executed_steps: int
+    discovered_files: List[str] = field(default_factory=list)
+    modified_files: List[str] = field(default_factory=list)
+    key_findings: List[str] = field(default_factory=list)
+
+
+class SessionContextManager:
+    """Gestiona la memoria acumulada y el contexto conversacional entre tareas concatenadas."""
+
+    def __init__(self, max_history_tasks: int = 8, max_context_chars: int = 12000):
+        self.max_history_tasks = max_history_tasks
+        self.max_context_chars = max_context_chars
+        self.task_records: List[TaskRecord] = []
+        self.all_discovered_files: Set[str] = set()
+        self.all_modified_files: Set[str] = set()
+        self.conversation_history: List[Dict[str, str]] = []
+
+    def is_empty(self) -> bool:
+        """Indica si es la primera tarea de la sesión (sin contexto previo)."""
+        return len(self.task_records) == 0
+
+    def record_completed_task(
+        self,
+        goal: str,
+        summary: str,
+        final_answer: str,
+        executed_steps: int,
+        history_steps: Optional[List[Dict[str, Any]]] = None,
+    ) -> TaskRecord:
+        """Registra la finalización de una tarea y extrae automáticamente hechos y archivos descubiertos."""
+        discovered: Set[str] = set()
+        modified: Set[str] = set()
+        findings: List[str] = []
+
+        if history_steps:
+            for st in history_steps:
+                tool = st.get("tool_name", "")
+                args = st.get("tool_args", {}) or {}
+                path = args.get("path") or args.get("file")
+                if path and isinstance(path, str):
+                    if tool in ("read_file", "view_file"):
+                        discovered.add(path)
+                    elif tool in ("edit_file", "write_file"):
+                        modified.add(path)
+
+                cmd = args.get("command", "")
+                if cmd and isinstance(cmd, str) and tool == "run_command":
+                    # Extraer posibles archivos mencionados en comandos
+                    for part in cmd.split():
+                        if "." in part and not part.startswith("-") and "/" not in part and "\\" not in part:
+                            discovered.add(part)
+
+        self.all_discovered_files.update(discovered)
+        self.all_modified_files.update(modified)
+
+        if summary and summary.strip():
+            findings.append(summary.strip())
+        elif final_answer and final_answer.strip():
+            # Extraer primera frase o líneas representativas
+            clean_ans = final_answer.strip().split("\n\n")[0]
+            findings.append(clean_ans[:300])
+
+        record = TaskRecord(
+            task_id=len(self.task_records) + 1,
+            goal=goal.strip(),
+            summary=summary.strip() if summary else (final_answer.strip()[:200] if final_answer else "Completada"),
+            final_answer=final_answer.strip(),
+            executed_steps=executed_steps,
+            discovered_files=sorted(list(discovered)),
+            modified_files=sorted(list(modified)),
+            key_findings=findings,
+        )
+        self.task_records.append(record)
+        return record
+
+    def build_initial_system_prompt(self) -> str:
+        """Genera el prompt de sistema base con instrucciones de eficiencia y formato ReAct."""
+        return (
+            "Eres un agente de ingeniería de software autónomo supervisado cognitivamente por JEV.\n"
+            "REGLA DE EFICIENCIA CRÍTICA: Formula y emite SIEMPRE un bloque con 2 o 3 pasos estructurados (Step 1, Step 2, etc.) "
+            "en cada turno cuando el flujo sea deducible, en lugar de un único paso.\n\n"
+            "Formato requerido:\n"
+            "Step 1:\n"
+            "Thought: <razonamiento del paso 1>\n"
+            "Action: <nombre_herramienta> <argumentos_en_json>\n"
+            "Step 2:\n"
+            "Thought: <razonamiento del paso 2>\n"
+            "Action: <nombre_herramienta> <argumentos_en_json>\n\n"
+            "Herramientas disponibles: run_command(command), read_file(path), edit_file(path, diff), finish(summary).\n"
+            "IMPORTANTE: Queda TERMINANTEMENTE PROHIBIDO alucinar hechos, variables o archivos no fundamentados en las observaciones reales recibidas.\n"
+            "Cuando hayas resuelto la tarea o encontrado la solución, invoca obligatoriamente:\n"
+            'Action: finish {"summary": "explicación de la solución final"}'
+        )
+
+    def prepare_task_conversation(self, current_goal: str) -> List[Dict[str, str]]:
+        """Prepara el historial de conversación inyectando la memoria estructurada de tareas previas."""
+        system_content = self.build_initial_system_prompt()
+
+        if self.is_empty():
+            # Primera tarea de la sesión
+            self.conversation_history = [
+                {"role": "system", "content": system_content},
+                {"role": "user", "content": f"Por favor, resuelve la siguiente tarea: {current_goal}"},
+            ]
+            return self.conversation_history
+
+        # Tarea concatenada subsiguiente: Inyectar memoria de sesión
+        memory_lines = [
+            "🧠 [MEMORIA DE SESIÓN CONTINUA — TAREAS PREVIAS COMPLETADAS]:",
+            "Has estado trabajando en esta misma sesión y cuentas con el siguiente contexto acumulado:",
+        ]
+
+        # Resumen de tareas completadas
+        recent_records = self.task_records[-self.max_history_tasks:]
+        for rec in recent_records:
+            ans_snippet = rec.final_answer.strip()
+            if len(ans_snippet) > 400:
+                ans_snippet = ans_snippet[:380] + "..."
+            memory_lines.append(f"• Tarea {rec.task_id}: '{rec.goal}'")
+            memory_lines.append(f"  Resultado obtenido: {rec.summary}")
+            if ans_snippet and ans_snippet != rec.summary:
+                memory_lines.append(f"  Detalle de solución: {ans_snippet}")
+            if rec.discovered_files:
+                memory_lines.append(f"  Archivos identificados: {', '.join(rec.discovered_files[:5])}")
+            if rec.modified_files:
+                memory_lines.append(f"  Archivos modificados: {', '.join(rec.modified_files[:5])}")
+
+        if self.all_discovered_files:
+            memory_lines.append(
+                f"• Archivos globales conocidos en disco: {', '.join(sorted(list(self.all_discovered_files))[:10])}"
+            )
+
+        memory_context = "\n".join(memory_lines)
+
+        user_content = (
+            f"{memory_context}\n\n"
+            f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+            f"🎯 [NUEVA TAREA CONCATENADA ACTUAL (Tarea #{len(self.task_records)+1})]:\n"
+            f"{current_goal}\n\n"
+            f"INSTRUCCIÓN: Utiliza libremente toda la información, respuestas y archivos descubiertos en las tareas anteriores "
+            f"para resolver esta nueva tarea sin tener que volver a descubrirlos desde cero a menos que sea necesario."
+        )
+
+        self.conversation_history = [
+            {"role": "system", "content": system_content},
+            {"role": "user", "content": user_content},
+        ]
+        return self.conversation_history
+
+    def reset(self) -> None:
+        """Reinicia la memoria de la sesión para empezar desde cero."""
+        self.task_records.clear()
+        self.all_discovered_files.clear()
+        self.all_modified_files.clear()
+        self.conversation_history.clear()
+
+    def get_summary_panel(self) -> Panel:
+        """Genera un panel visual Rich resumiendo el estado de la sesión continua."""
+        if not self.task_records:
+            return Panel("[dim]Sin tareas previas en la sesión actual.[/]", title="Contexto de Sesión")
+
+        table = Table(show_header=True, header_style="bold magenta", expand=True)
+        table.add_column("#", style="dim", width=4)
+        table.add_column("Objetivo Previo", style="cyan")
+        table.add_column("Resultado / Hallazgos", style="green")
+        table.add_column("Archivos", style="yellow")
+
+        for r in self.task_records:
+            files_desc = ", ".join(r.discovered_files + r.modified_files)[:30] or "N/A"
+            table.add_row(
+                str(r.task_id),
+                r.goal[:40] + ("..." if len(r.goal) > 40 else ""),
+                r.summary[:60] + ("..." if len(r.summary) > 60 else ""),
+                files_desc,
+            )
+
+        return Panel(
+            table,
+            title=f"🔗 [bold cyan]Memoria de Sesión Activa ({len(self.task_records)} tareas acumuladas)[/]",
+            border_style="cyan",
+        )

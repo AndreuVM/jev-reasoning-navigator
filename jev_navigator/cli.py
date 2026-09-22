@@ -1,0 +1,319 @@
+"""Consola interactiva y visualizador CLI enriquecido con Rich para JEV-Reasoning-Navigator."""
+
+import argparse
+import io
+import json
+from pathlib import Path
+import sys
+from typing import List, Optional
+
+# Asegurar codificación UTF-8 en Windows para evitar errores con charmap cp1252
+if sys.platform == "win32":
+    if hasattr(sys.stdout, "buffer") and sys.stdout.encoding.lower() != "utf-8":
+        sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding="utf-8", errors="replace")
+    if hasattr(sys.stderr, "buffer") and sys.stderr.encoding.lower() != "utf-8":
+        sys.stderr = io.TextIOWrapper(sys.stderr.buffer, encoding="utf-8", errors="replace")
+
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+from rich.text import Text
+from rich.tree import Tree
+
+from jev_navigator import __version__
+from jev_navigator.config import JEVConfig, default_config
+from jev_navigator.core.intervention_policy import InterventionPolicy
+from jev_navigator.core.jev_engine import JEVEngine
+from jev_navigator.core.state_graph import StateGraph
+from jev_navigator.models.schema import (
+    ActionCandidate,
+    InterventionDirective,
+    InterventionLevel,
+    JEVScore,
+    LoopReport,
+    LoopType,
+    Step,
+    StepType,
+    Trajectory,
+)
+from jev_navigator.models.trace import TraceParser
+
+console = Console(legacy_windows=False)
+
+
+def analyze_trace_file(file_path: str, config: Optional[JEVConfig] = None) -> None:
+    """Carga y analiza detalladamente una traza de razonamiento mediante TypeSafe AI."""
+    path = Path(file_path)
+    if not path.exists():
+        console.print(f"[bold red]Error:[/] El archivo '{file_path}' no existe.")
+        return
+
+    # Cargar contenido
+    text_content = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(text_content)
+        if isinstance(data, dict):
+            trajectory = TraceParser.from_dict(data)
+        elif isinstance(data, list):
+            trajectory = TraceParser.from_dict({"steps": data})
+        else:
+            trajectory = TraceParser.from_scratchpad(text_content, goal=path.stem)
+    except Exception:
+        trajectory = TraceParser.from_scratchpad(text_content, goal=path.stem)
+
+    cfg = config or default_config
+    graph = StateGraph(cfg)
+    graph.load_trajectory(trajectory)
+
+    engine = JEVEngine(graph, cfg)
+    policy = InterventionPolicy(graph, cfg)
+
+    # 1. Ejecutar evaluaciones en lote con TypeSafe AI
+    loop_report = engine.diagnose_trajectory(trajectory)
+    scores: List[JEVScore] = []
+    for step in trajectory.steps:
+        score = engine.evaluate_step(step)
+        scores.append(score)
+        graph.set_step_jev(step.id, score.total_jev)
+
+    directive = policy.evaluate_and_intervene(
+        current_step=trajectory.steps[-1] if trajectory.steps else None,
+        jev_score=scores[-1] if scores else None,
+        loop_report=loop_report,
+    )
+
+    # 2. Renderizar Header
+    status_text = (
+        "[bold red]ALERTA DE BUCLE O ALUCINACIÓN DETECTADA[/]"
+        if loop_report.loop_detected
+        else "[bold green]TRAYECTORIA CONVERGENTE SALUDABLE[/]"
+    )
+    engine_name = "🚀 [bold magenta]TypeSafe AI (Modelo Jev - System One)[/]"
+    header_panel = Panel(
+        f"[bold white]Sesión:[/] {trajectory.session_id}\n"
+        f"[bold white]Objetivo:[/] {trajectory.goal}\n"
+        f"[bold white]Motor evaluador:[/] {engine_name}\n"
+        f"[bold white]Pasos analizados:[/] {len(trajectory.steps)}\n"
+        f"[bold white]Estado global:[/] {status_text}",
+        title="🧠 [bold cyan]JEV-Reasoning-Navigator: Diagnóstico de Traza[/]",
+        border_style="cyan" if not loop_report.loop_detected else "red",
+    )
+    console.print(header_panel)
+
+    # 3. Renderizar Árbol de Razonamiento
+    tree = Tree(f"🎯 [bold yellow]Meta:[/] {trajectory.goal[:80]}")
+    cycle_nodes_set = set(loop_report.cycle_nodes)
+
+    for idx, (step, sc) in enumerate(zip(trajectory.steps, scores)):
+        is_cycle = step.id in cycle_nodes_set
+        score_val = sc.total_jev
+
+        if is_cycle or score_val < 0.0:
+            color = "red"
+            badge = "❌ [bold red]LOOP / BAJO JEV[/]"
+        elif score_val >= 0.20:
+            color = "green"
+            badge = "✅ [bold green]ALTO JEV[/]"
+        else:
+            color = "yellow"
+            badge = "⚠️  [bold yellow]MEDIO JEV[/]"
+
+        preview = (step.content or f"{step.tool_name} {step.tool_args or ''}").strip()
+        if len(preview) > 75:
+            preview = preview[:75] + "..."
+
+        step_node = tree.add(
+            f"[{color}][{step.id} ({step.step_type.value})] {preview}[/]  "
+            f"[dim](JEV: {score_val:+.2f})[/] {badge}"
+        )
+
+    console.print("\n[bold cyan]Árbol Cronológico de Razonamiento:[/]")
+    console.print(tree)
+
+    # 4. Tabla analítica de evaluación semántica TypeSafe AI (System One)
+    table = Table(
+        title="Evaluación Semántica de Trayectoria: TypeSafe AI (System One)",
+        show_header=True,
+        header_style="bold magenta",
+    )
+    table.add_column("Paso", style="dim", width=8)
+    table.add_column("Tipo", width=11)
+    table.add_column("Herramienta / Contenido", width=36)
+    table.add_column("Noul (Riesgo)", justify="right", width=13)
+    table.add_column("Avance Meta", justify="center", width=15)
+    table.add_column("Diagnóstico Semántico", justify="left", width=24)
+    table.add_column("Estado", justify="center", width=10)
+
+    for step, sc in zip(trajectory.steps, scores):
+        is_cycle = step.id in cycle_nodes_set
+        content_repr = step.tool_name if step.tool_name else step.content
+        if len(content_repr) > 33:
+            content_repr = content_repr[:33] + "..."
+
+        ts_chunk = sc.details.get("chunk_eval") or {}
+        noul_val = float(ts_chunk.get("noul_prob", 0.15 if sc.total_jev >= 0 else 0.85))
+        noul_style = "bold red" if noul_val >= 0.6 else ("bold yellow" if noul_val >= 0.35 else "bold green")
+        diag_label = ts_chunk.get("hallucination_type") or ("LOOP" if is_cycle else "NONE")
+
+        progress_label = "DIRECT_SOLUTION" if sc.p_progress >= 0.9 else ("SIGNIFICANT" if sc.p_progress >= 0.7 else "MINOR")
+        status_tag = "[red]BLOQUEADO[/]" if (is_cycle or sc.total_jev < 0) else "[green]SEGURO[/]"
+
+        table.add_row(
+            step.id,
+            step.step_type.value,
+            content_repr,
+            f"[{noul_style}]{noul_val:.2f}[/]",
+            f"[cyan]{progress_label}[/]",
+            f"[dim]{diag_label}[/]",
+            status_tag,
+        )
+
+    console.print("\n")
+    console.print(table)
+
+    # 5. Panel de Intervención si se requiere
+    if directive:
+        border = "red" if directive.level >= InterventionLevel.LEVEL_2_FORCED_BACKTRACKING else "yellow"
+        directive_panel = Panel(
+            f"[bold]{directive.message}[/]\n\n"
+            f"[bold yellow]Acciones Prohibidas:[/] {directive.forbidden_actions or 'Ninguna'}\n"
+            f"[bold green]Acción Sugerida:[/] {directive.suggested_action or 'Continuar'}\n\n"
+            f"[bold cyan]Prompt Inyectable al Agente:[/]\n[dim]{directive.context_injection}[/]",
+            title=f"🚨 [bold red]Directiva de Intervención Activada ({directive.level.name})[/]",
+            border_style=border,
+        )
+        console.print("\n")
+        console.print(directive_panel)
+    else:
+        console.print("\n[bold green]✓ No se requiere ninguna intervención correctiva.[/]")
+
+
+def simulate_trace_execution(file_path: str, config: Optional[JEVConfig] = None) -> None:
+    """Simula la ejecución paso a paso de una traza interceptando bucles en tiempo real."""
+    from rich.markup import escape
+
+    path = Path(file_path)
+    if not path.exists():
+        console.print(f"[bold red]Error:[/] Archivo no encontrado '{file_path}'.")
+        return
+
+    text_content = path.read_text(encoding="utf-8")
+    try:
+        data = json.loads(text_content)
+        trajectory = TraceParser.from_dict(data)
+    except Exception:
+        trajectory = TraceParser.from_scratchpad(text_content)
+
+    cfg = config or default_config
+    graph = StateGraph(cfg)
+    engine = JEVEngine(graph, cfg)
+    policy = InterventionPolicy(graph, cfg)
+
+    engine_name = "🚀 [bold magenta]TypeSafe AI (Modelo Jev - System One)[/]"
+
+    console.print(
+        Panel(
+            f"Objetivo: [bold]{escape(trajectory.goal)}[/]\n"
+            f"Motor evaluador: {engine_name}",
+            title="🕹️ [bold blue]Modo Simulación JEV[/]"
+        )
+    )
+
+    graph.goal = trajectory.goal
+
+    for i, step in enumerate(trajectory.steps):
+        desc = escape((step.tool_name or step.content or "").strip())
+        if len(desc) > 60:
+            desc = desc[:60] + "..."
+        console.print(f"\n[bold cyan]--> Procesando paso {i+1}/{len(trajectory.steps)}:[/] [bold yellow]{escape(step.id)}[/] ({escape(step.step_type.value)}: [dim]{desc}[/])")
+        graph.add_step(step)
+        score = engine.evaluate_step(step)
+        graph.set_step_jev(step.id, score.total_jev)
+
+        ts_eval = score.details.get("typesafe_eval") or {}
+        is_loop = bool(ts_eval.get("is_loop", False) or score.total_jev < cfg.critical_jev_threshold)
+        loop_type = ts_eval.get("loop_type", LoopType.ONE_HOP_TOOL_REPEAT if is_loop else LoopType.NONE)
+
+        loop_rep = LoopReport(
+            loop_detected=is_loop,
+            loop_type=loop_type,
+            severity=3 if is_loop else 0,
+            explanation=f"Evaluación TypeSafe: {'bucle o estancamiento detectado' if is_loop else 'acción constructiva'}",
+            culprit_tool=step.tool_name,
+        )
+
+        directive = policy.evaluate_and_intervene(current_step=step, jev_score=score, loop_report=loop_rep)
+
+        console.print(f"    JEV: [bold {'green' if score.total_jev >= 0 else 'red'}]{score.total_jev:+.2f}[/] (P={score.p_progress:.2f}, ΔU={score.delta_u:.2f}, Penalty={score.loop_penalty:.2f})")
+
+        if directive and (is_loop or score.total_jev < cfg.critical_jev_threshold):
+            console.print(f"    [bold red]🛑 ¡INTERCEPCIÓN ACTIVADA![/] Nivel: [bold yellow]{directive.level.name}[/]")
+            console.print(f"    Directiva inyectada: {directive.suggested_action}")
+            if directive.level >= InterventionLevel.LEVEL_2_FORCED_BACKTRACKING:
+                console.print(f"    [bold magenta]PODA DE RAMA:[/] Retroceder a nodo '[bold white]{directive.target_step_id}[/]'. Prohibido: [red]{directive.forbidden_actions}[/]")
+                break
+
+
+def main() -> None:
+    """Punto de entrada principal para CLI de JEV-Reasoning-Navigator."""
+    parser = argparse.ArgumentParser(
+        prog="jev-nav",
+        description="JEV-Reasoning-Navigator: Motor de Navegación Cognitiva y Ruptura de Bucles para LLMs",
+    )
+    parser.add_argument("--version", action="version", version=f"%(prog)s {__version__}")
+    subparsers = parser.add_subparsers(dest="command", help="Comando a ejecutar")
+
+    # Subcomando analyze
+    analyze_parser = subparsers.add_parser("analyze", help="Analiza y visualiza una traza con árbol y tabla Rich")
+    analyze_parser.add_argument("trace_path", type=str, help="Ruta al archivo de traza (.json o .txt)")
+    analyze_parser.add_argument("--typesafe", action="store_true", help="Habilitar evaluación remota mediante el modelo Jev de TypeSafe AI")
+    analyze_parser.add_argument("--api-key", type=str, default=None, help="Clave API de TypeSafe AI (o configurar TYPESAFE_API_KEY en .env)")
+
+    # Subcomando simulate
+    sim_parser = subparsers.add_parser("simulate", help="Simula paso a paso la ejecución de una traza interceptando bucles")
+    sim_parser.add_argument("trace_path", type=str, help="Ruta al archivo de traza (.json o .txt)")
+    sim_parser.add_argument("--typesafe", action="store_true", help="Habilitar evaluación remota mediante el modelo Jev de TypeSafe AI")
+    sim_parser.add_argument("--api-key", type=str, default=None, help="Clave API de TypeSafe AI (o configurar TYPESAFE_API_KEY en .env)")
+
+    # Subcomando dashboard / visual
+    dash_parser = subparsers.add_parser("dashboard", aliases=["visual"], help="Panel visual interactivo TUI del trabajo conjunto Agente ⇄ JEV")
+    dash_parser.add_argument("--task", type=str, default=None, help="Objetivo o descripción de la tarea a visualizar")
+    dash_parser.add_argument("--live", action="store_true", help="Ejecutar en modo vivo con agente LLM")
+    dash_parser.add_argument("--model", type=str, default="gemini-3.6-flash", help="Modelo LLM para modo vivo")
+    dash_parser.add_argument("--max-steps", type=int, default=25, help="Número máximo de turnos permitidos")
+    dash_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir inmediatamente sin modo interactivo continuo")
+
+    args = parser.parse_args()
+
+    cfg = default_config.model_copy()
+    if getattr(args, "api_key", None):
+        cfg.typesafe_api_key = args.api_key
+        cfg.use_typesafe_api = True
+    elif getattr(args, "typesafe", False):
+        cfg.use_typesafe_api = True
+
+    if args.command == "analyze":
+        analyze_trace_file(args.trace_path, config=cfg)
+    elif args.command == "simulate":
+        simulate_trace_execution(args.trace_path, config=cfg)
+    elif args.command in ("dashboard", "visual"):
+        from jev_navigator.dashboard import run_visual_demo, run_visual_live
+        if getattr(args, "live", False):
+            run_visual_live(
+                task=getattr(args, "task", None),
+                model_name=getattr(args, "model", "gemini-3.6-flash"),
+                max_steps=getattr(args, "max_steps", 25),
+                config=cfg,
+                once=getattr(args, "once", False),
+            )
+        else:
+            run_visual_demo(
+                task=getattr(args, "task", None),
+                once=getattr(args, "once", False),
+            )
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()
