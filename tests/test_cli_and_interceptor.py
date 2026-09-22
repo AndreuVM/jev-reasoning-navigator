@@ -419,6 +419,78 @@ def test_live_agent_reset_command_clears_context(monkeypatch):
     assert executed_tasks == ["Tarea Inicial", "Tarea Limpia"]
 
 
+def test_proxy_middleware_rejects_evasive_finish_single_call():
+    """Verifica que intercept_tool_call rechace finalizaciones con resúmenes evasivos o excusas."""
+    middleware = JEVProxyMiddleware(goal="Investigar fallo en main.py")
+    safe, injection = middleware.intercept_tool_call(
+        tool_name="finish",
+        tool_args={"summary": "Pendiente de lectura de archivo"},
+        thought_rationale="Como soy un agente, este paso es de planificación; la acción real será tras read_file",
+    )
+    assert safe is False
+    assert injection is not None
+    assert "Finalización evasiva rechazada" in injection
+
+
+def test_proxy_middleware_rejects_evasive_finish_in_chunk():
+    """Verifica que intercept_step_chunk detecte y bloquee finish evasivos como UNGROUNDED_PREMISE."""
+    from jev_navigator.models.schema import LoopType
+
+    middleware = JEVProxyMiddleware(goal="Diagnosticar fallo")
+    proposed_steps = [
+        {
+            "step_type": "tool_call",
+            "thought_rationale": "Planeando análisis",
+            "tool_name": "finish",
+            "tool_args": {"summary": "Pendiente de lectura del archivo"},
+        }
+    ]
+    res = middleware.intercept_step_chunk(proposed_steps)
+    assert res.all_safe is False
+    assert res.loop_report is not None
+    assert res.loop_report.loop_type == LoopType.UNGROUNDED_PREMISE
+    assert "Finalización evasiva" in res.loop_report.explanation
+
+
+def test_proxy_middleware_rejects_finish_coexisting_with_unexecuted_inspection():
+    """Verifica que intercept_step_chunk bloquee un finish propuesto en el mismo bloque que un read_file sin ejecutar."""
+    from jev_navigator.models.schema import LoopType
+
+    middleware = JEVProxyMiddleware(goal="Leer y resolver")
+    proposed_steps = [
+        {
+            "step_type": "tool_call",
+            "thought_rationale": "Leer el archivo primero",
+            "tool_name": "read_file",
+            "tool_args": {"path": "config.json"},
+        },
+        {
+            "step_type": "tool_call",
+            "thought_rationale": "Concluir tarea",
+            "tool_name": "finish",
+            "tool_args": {"summary": "Tarea completada con éxito"},
+        },
+    ]
+    res = middleware.intercept_step_chunk(proposed_steps)
+    assert res.all_safe is False
+    assert res.flagged_step_index == 1
+    assert res.loop_report is not None
+    assert res.loop_report.loop_type == LoopType.UNGROUNDED_PREMISE
+
+
+def test_proxy_middleware_accepts_genuine_finish():
+    """Verifica que un finish genuino y fundamentado sea aceptado con alto JEV score."""
+    middleware = JEVProxyMiddleware(goal="Investigar fallo en main.py")
+    safe, injection = middleware.intercept_tool_call(
+        tool_name="finish",
+        tool_args={"summary": "El bug se originaba por una división por cero en la línea 42 de main.py."},
+        thought_rationale="Hemos inspeccionado main.py y verificado que el divisor era 0.",
+    )
+    assert safe is True
+    assert injection is None
+
+
+
 
 
 

@@ -757,9 +757,26 @@ def _execute_single_live_task(
 
                 obs = "Acción ejecutada correctamente."
                 if tool_name == "finish":
-                    task_finished = True
-                    final_summary = tool_args.get("summary", "Tarea completada exitosamente.")
-                    obs = f"Tarea finalizada: {final_summary}"
+                    summary = tool_args.get("summary", "Tarea completada exitosamente.")
+                    evasive_markers = (
+                        "pendiente de", "pendiente", "planificación", "planificacion",
+                        "como soy un agente", "la acción real", "la accion real",
+                        "todavía no", "aún no he", "aun no he", "sin analizar",
+                        "no he podido leer", "no he podido", "provisional", "pending",
+                        "este paso es de"
+                    )
+                    if any(m in str(summary).lower() for m in evasive_markers):
+                        dash.supervisor_status = "⚠️ FINISH EVASIVO RECHAZADO"
+                        dash.supervisor_action = "Inyectando directiva para respuesta fundamentada"
+                        task_finished = False
+                        obs = (
+                            "OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque contiene un texto de planificación o evasión ('pendiente de lectura'). "
+                            "NO puedes finalizar sin dar una respuesta concreta. Analiza las observaciones y el contenido ya obtenido y responde directamente con los hallazgos en tu siguiente turno."
+                        )
+                    else:
+                        task_finished = True
+                        final_summary = summary
+                        obs = f"Tarea finalizada: {final_summary}"
                 elif tool_name == "run_command":
                     cmd = tool_args.get("command") or tool_args.get("cmd") or tool_args.get("raw") or ""
                     if isinstance(cmd, dict):

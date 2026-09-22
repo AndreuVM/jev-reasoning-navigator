@@ -453,15 +453,35 @@ def run_live_gemini_agent(
             observation = ""
             if tool_name == "finish":
                 summary = tool_args.get("summary", "Tarea completada exitosamente")
-                console.print(Panel(
-                    f"[bold green]Objetivo completado:[/] {summary}",
-                    title="🎉 Éxito de Ejecución",
-                    border_style="green",
-                ))
-                task_finished = True
-                final_summary = summary
-                final_answer = summary
-                observation = f"Tarea finalizada: {summary}"
+                evasive_markers = (
+                    "pendiente de", "pendiente", "planificación", "planificacion",
+                    "como soy un agente", "la acción real", "la accion real",
+                    "todavía no", "aún no he", "aun no he", "sin analizar",
+                    "no he podido leer", "no he podido", "provisional", "pending",
+                    "este paso es de"
+                )
+                if any(m in str(summary).lower() for m in evasive_markers):
+                    console.print(Panel(
+                        f"[bold yellow]⚠️ JEV Rechazó finalización evasiva:[/] {summary}\n"
+                        "[italic]El agente intentó terminar con excusas de planificación. Obligando a formular respuesta con observaciones existentes.[/]",
+                        title="🛡️ Intervención JEV",
+                        border_style="yellow",
+                    ))
+                    task_finished = False
+                    observation = (
+                        "OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque contiene un texto de planificación o evasión ('pendiente de lectura'). "
+                        "NO puedes finalizar sin dar una respuesta concreta. Analiza las observaciones y el contenido ya obtenido y responde directamente con los hallazgos en tu siguiente turno."
+                    )
+                else:
+                    console.print(Panel(
+                        f"[bold green]Objetivo completado:[/] {summary}",
+                        title="🎉 Éxito de Ejecución",
+                        border_style="green",
+                    ))
+                    task_finished = True
+                    final_summary = summary
+                    final_answer = summary
+                    observation = f"Tarea finalizada: {summary}"
             elif tool_name == "run_command":
                 cmd = tool_args.get("command", "")
                 if cmd:

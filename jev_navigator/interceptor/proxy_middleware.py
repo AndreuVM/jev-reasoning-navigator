@@ -77,13 +77,44 @@ class JEVProxyMiddleware:
                 (step.tool_name == "run_command" and any(c in str(step.tool_args or {}).lower() for c in ("dir", "ls", "grep", "cat", "status", "inspect", "head", "tail", "type ", "echo ", "version", "get-childitem", "get-content")))
             )
             is_terminal = (step.tool_name == "finish")
+            is_evasive_finish = False
+
+            if is_terminal:
+                summary_raw = str((step.tool_args or {}).get("summary") or "").lower()
+                content_raw = str(step.content or "").lower()
+                combined_finish = f"{summary_raw} {content_raw}"
+
+                # 1. Comprobar si el finish es evasivo, un placeholder o una excusa de planificación
+                evasive_markers = (
+                    "pendiente de", "pendiente", "planificación", "planificacion",
+                    "como soy un agente", "la acción real", "la accion real",
+                    "todavía no", "aún no he", "aun no he", "sin analizar",
+                    "no he podido leer", "no he podido", "provisional", "pending",
+                    "este paso es de"
+                )
+                if any(m in combined_finish for m in evasive_markers):
+                    is_evasive_finish = True
+
+                # 2. Comprobar si viene en el mismo bloque donde hay acciones de lectura previas
+                has_prior_unexecuted_inspection = any(
+                    prev_c.tool_name in ("read_file", "view_file", "run_command")
+                    for prev_c in candidate_steps[:idx]
+                )
+                if has_prior_unexecuted_inspection:
+                    is_evasive_finish = True
 
             if is_observational and is_hallucination:
                 is_hallucination = False
                 is_divergent = False
 
-            if is_terminal:
-                # La acción terminal finish concluye la tarea y no debe ser abortada
+            if is_evasive_finish:
+                is_terminal = False
+                is_hallucination = True
+                is_divergent = True
+                score.total_jev = -0.5
+                hallucination_type = "evasive_or_premature_finish"
+            elif is_terminal:
+                # La acción terminal finish es genuina y concluye la tarea
                 is_hallucination = False
                 is_divergent = False
                 is_ts_loop = False
@@ -93,7 +124,19 @@ class JEVProxyMiddleware:
             loop_rep = LoopReport(loop_detected=False)
 
             if loop_detected:
-                if is_hallucination:
+                if is_evasive_finish:
+                    loop_rep = LoopReport(
+                        loop_detected=True,
+                        loop_type=LoopType.UNGROUNDED_PREMISE,
+                        severity=4,
+                        explanation=(
+                            f"Finalización evasiva o prematura rechazada en paso {step.id}: "
+                            "El agente intentó finalizar con una excusa de planificación ('pendiente de lectura') "
+                            "o antes de examinar las observaciones. Debe formular su conclusión real usando las observaciones ya obtenidas."
+                        ),
+                        culprit_tool=step.tool_name,
+                    )
+                elif is_hallucination:
                     loop_rep = LoopReport(
                         loop_detected=True,
                         loop_type=LoopType.HALLUCINATION,
@@ -164,6 +207,24 @@ class JEVProxyMiddleware:
         )
 
         if tool_name == "finish":
+            summary_raw = str((tool_args or {}).get("summary") or "").lower()
+            content_raw = str(thought_rationale or "").lower()
+            combined_finish = f"{summary_raw} {content_raw}"
+            evasive_markers = (
+                "pendiente de", "pendiente", "planificación", "planificacion",
+                "como soy un agente", "la acción real", "la accion real",
+                "todavía no", "aún no he", "aun no he", "sin analizar",
+                "no he podido leer", "no he podido", "provisional", "pending",
+                "este paso es de"
+            )
+            if any(m in combined_finish for m in evasive_markers):
+                return False, (
+                    "<system_intervention type=\"rejection\" level=\"critical\">\n"
+                    "JEV CRITICAL: Finalización evasiva rechazada. NO puedes finalizar con 'pendiente de lectura' "
+                    "ni excusas de planificación. Sintetiza y formula tu respuesta final basándote en la información y observaciones "
+                    "que ya has recolectado.\n"
+                    "</system_intervention>"
+                )
             self.graph.add_step(candidate_step)
             self.graph.set_step_jev(step_id, 0.95)
             return True, None

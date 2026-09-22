@@ -106,9 +106,13 @@ class SessionContextManager:
             "Thought: <razonamiento del paso 2>\n"
             "Action: <nombre_herramienta> <argumentos_en_json>\n\n"
             "Herramientas disponibles: run_command(command), read_file(path), edit_file(path, diff), finish(summary).\n"
-            "IMPORTANTE: Queda TERMINANTEMENTE PROHIBIDO alucinar hechos, variables o archivos no fundamentados en las observaciones reales recibidas.\n"
-            "Cuando hayas resuelto la tarea o encontrado la solución, invoca obligatoriamente:\n"
-            'Action: finish {"summary": "explicación de la solución final"}'
+            "REGLAS OBLIGATORIAS:\n"
+            "- Queda TERMINANTEMENTE PROHIBIDO alucinar hechos, variables o archivos no fundamentados en las observaciones reales recibidas.\n"
+            "- Queda TERMINANTEMENTE PROHIBIDO usar 'finish' como acción provisional, de planificación o con textos evasivos (ej. 'pendiente de lectura', 'sin analizar'). "
+            "La herramienta 'finish' SOLO debe usarse para entregar la solución definitiva ya sintetizada a partir de las observaciones reales obtenidas.\n"
+            "- NUNCA propongas 'finish' en el mismo bloque junto a herramientas de inspección (como read_file o run_command) que aún no hayan sido ejecutadas.\n"
+            "Cuando hayas resuelto la tarea o encontrado la solución fundamentada, invoca obligatoriamente:\n"
+            'Action: finish {"summary": "explicación clara, fundamentada y completa de la solución final"}'
         )
 
     def prepare_task_conversation(self, current_goal: str) -> List[Dict[str, str]]:
