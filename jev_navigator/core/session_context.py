@@ -2,7 +2,11 @@
 
 from dataclasses import dataclass, field
 import json
+import os
+from pathlib import Path
+import platform
 import re
+import sys
 from typing import Any, Dict, List, Optional, Set
 
 from rich.console import Console
@@ -115,15 +119,89 @@ class SessionContextManager:
             'Action: finish {"summary": "explicación clara, fundamentada y completa de la solución final"}'
         )
 
+    def get_environment_info(self, root_dir: Optional[str] = None) -> str:
+        """Recolecta información estructurada sobre el entorno de ejecución del sistema y el espacio de trabajo."""
+        cwd = Path(root_dir) if root_dir else Path.cwd()
+        os_name = platform.system()
+        release = platform.release()
+        arch = platform.machine() or (platform.architecture()[0] if hasattr(platform, "architecture") else "")
+        shell_name = "PowerShell" if sys.platform == "win32" else "bash"
+
+        ignored_dirs = {
+            ".git", ".venv", "venv", "__pycache__", ".pytest_cache", ".ruff_cache",
+            "node_modules", ".gemini", "scratch", ".idea", ".vscode"
+        }
+
+        file_tree = []
+        try:
+            root_items = sorted(list(cwd.iterdir()), key=lambda p: (not p.is_dir(), p.name.lower()))
+            for item in root_items:
+                if item.name.startswith(".") and item.name not in (".env", ".gitignore"):
+                    continue
+                if item.name in ignored_dirs:
+                    continue
+                if item.is_file():
+                    file_tree.append(f"- {item.name}")
+                elif item.is_dir():
+                    sub_items = []
+                    try:
+                        for sub in sorted(list(item.iterdir()), key=lambda p: (not p.is_dir(), p.name.lower())):
+                            if sub.name.startswith(".") or sub.name in ignored_dirs:
+                                continue
+                            sub_items.append(sub.name + ("/" if sub.is_dir() else ""))
+                    except Exception:
+                        pass
+                    if sub_items:
+                        preview = ", ".join(sub_items[:8])
+                        if len(sub_items) > 8:
+                            preview += f" ... (+{len(sub_items)-8} más)"
+                        file_tree.append(f"[DIR] {item.name}/ [{preview}]")
+                    else:
+                        file_tree.append(f"[DIR] {item.name}/")
+        except Exception as e:
+            file_tree.append(f"- (Error explorando directorio: {e})")
+
+        tree_str = "\n  ".join(file_tree[:25]) if file_tree else "- (Directorio vacío)"
+
+        env_lines = [
+            "🖥️ [INFORMACIÓN DEL ENTORNO DE EJECUCIÓN Y SISTEMA]:",
+            f"• Sistema Operativo: {os_name} {release} ({arch})",
+            f"• Shell del terminal (run_command): {shell_name}",
+            f"• Directorio de trabajo raíz (CWD): {cwd}",
+            f"• Separador de rutas: '{os.sep}' (en las herramientas puedes usar rutas relativas normales con '/')",
+            "• Estructura inicial del espacio de trabajo detectada:",
+            f"  {tree_str}",
+            "",
+            "💡 RECOMENDACIONES DE ENTORNO:",
+            "1. Para inspeccionar cualquier archivo listado arriba, usa DIRECTAMENTE 'read_file(path)' con su ruta relativa.",
+        ]
+        if sys.platform == "win32":
+            env_lines.append(
+                "2. En Windows, NO uses comandos Unix/Linux como 'ls', 'find', 'grep' o 'cat'. "
+                "Si requieres usar la consola con run_command, utiliza comandos de PowerShell/CMD (como 'dir' o 'Get-ChildItem')."
+            )
+        else:
+            env_lines.append(
+                "2. En sistemas Unix puedes utilizar comandos estándar como 'ls', 'grep' o 'cat'."
+            )
+
+        return "\n".join(env_lines)
+
     def prepare_task_conversation(self, current_goal: str) -> List[Dict[str, str]]:
-        """Prepara el historial de conversación inyectando la memoria estructurada de tareas previas."""
+        """Prepara el historial de conversación inyectando la información de entorno y memoria de tareas previas."""
         system_content = self.build_initial_system_prompt()
+        env_info = self.get_environment_info()
 
         if self.is_empty():
             # Primera tarea de la sesión
+            initial_user_prompt = (
+                f"{env_info}\n\n"
+                f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
+                f"Por favor, resuelve la siguiente tarea: {current_goal}"
+            )
             self.conversation_history = [
                 {"role": "system", "content": system_content},
-                {"role": "user", "content": f"Por favor, resuelve la siguiente tarea: {current_goal}"},
+                {"role": "user", "content": initial_user_prompt},
             ]
             return self.conversation_history
 
@@ -156,6 +234,7 @@ class SessionContextManager:
         memory_context = "\n".join(memory_lines)
 
         user_content = (
+            f"{env_info}\n\n"
             f"{memory_context}\n\n"
             f"━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━\n"
             f"🎯 [NUEVA TAREA CONCATENADA ACTUAL (Tarea #{len(self.task_records)+1})]:\n"

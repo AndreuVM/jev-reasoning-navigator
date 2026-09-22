@@ -490,6 +490,24 @@ def test_proxy_middleware_accepts_genuine_finish():
     assert injection is None
 
 
+def test_session_context_injects_environment_info():
+    """Verifica que SessionContextManager descubra e inyecte el entorno del sistema y el árbol de archivos."""
+    from jev_navigator.core.session_context import SessionContextManager
+
+    session = SessionContextManager()
+    env_info = session.get_environment_info()
+    assert "INFORMACIÓN DEL ENTORNO DE EJECUCIÓN" in env_info
+    assert "Sistema Operativo:" in env_info
+    assert "pyproject.toml" in env_info
+
+    conv = session.prepare_task_conversation("Analizar dependencias")
+    user_prompt = conv[1]["content"]
+    assert "INFORMACIÓN DEL ENTORNO DE EJECUCIÓN" in user_prompt
+    assert "pyproject.toml" in user_prompt
+    assert "Analizar dependencias" in user_prompt
+
+
+
 
 
 
