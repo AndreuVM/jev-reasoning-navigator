@@ -1,0 +1,88 @@
+"""Decisiones formales de política y recibos inmutables de auditoría (Cuadro 1)."""
+
+from datetime import datetime
+from enum import Enum
+import hashlib
+import json
+from typing import Any, Dict, List, Optional
+from pydantic import BaseModel, ConfigDict, Field
+
+from jev_navigator.domain.assessment import ProviderAssessment, RiskAssessment
+
+
+class DecisionStatus(str, Enum):
+    """Estados canónicos de decisión formal del supervisor."""
+    ALLOW = "allow"      # Acción autorizada por la política actual
+    BLOCK = "block"      # Denegación formal o imperativo de seguridad
+    REPLAN = "replan"    # Trayectoria inadecuada; replanificación obligatoria
+    ABSTAIN = "abstain"  # Abstención preventiva por incertidumbre o indisponibilidad
+
+
+class PolicyDecision(BaseModel):
+    """Decisión final consolidada por la PolicyEngine."""
+    model_config = ConfigDict(frozen=True)
+
+    status: DecisionStatus
+    reason_codes: List[str] = Field(default_factory=list)
+    confidence: float = 1.0
+    target_checkpoint: Optional[str] = None
+    forbidden_tools: List[str] = Field(default_factory=list)
+    requires_confirmation: bool = False
+    provider: Optional[ProviderAssessment] = None
+    grounding: Optional[float] = None
+    risk: Optional[RiskAssessment] = None
+
+
+class DecisionReceipt(BaseModel):
+    """Recibo criptográficamente auditable de una decisión de supervisión (Contrato Cuadro 1)."""
+    model_config = ConfigDict(frozen=True, populate_by_name=True)
+
+    # 1. Contexto
+    decision_id: str
+    session_id: str
+    action_id: str
+    state_hash: str
+    action_hash: str
+
+    # 2. Proveedor
+    provider_available: bool = True
+    model_identifier: Optional[str] = None
+    latency_ms: float = 0.0
+
+    # 3. Razonamiento
+    progress_score: Optional[float] = None
+    grounded_score: Optional[float] = None
+    loop_type: Optional[str] = None
+    novelty_score: Optional[float] = None
+
+    # 4. Riesgo
+    risk_level: Optional[str] = None
+    risk_reasons: List[str] = Field(default_factory=list)
+    destructive_potential: bool = False
+
+    # 5. Política
+    decision_status: DecisionStatus = DecisionStatus.ALLOW
+    reason_codes: List[str] = Field(default_factory=list)
+
+    # 6. Ejecución
+    is_executed: bool = False
+    observation_id: Optional[str] = None
+    execution_timestamp: Optional[datetime] = None
+    timestamp: datetime = Field(default_factory=datetime.utcnow)
+
+    def __init__(self, **data: Any):
+        # Compatibilidad hacia atrás: si se pasa 'decision' en lugar de 'decision_status'
+        if "decision" in data and "decision_status" not in data:
+            data["decision_status"] = data.pop("decision")
+        super().__init__(**data)
+
+    @property
+    def decision(self) -> DecisionStatus:
+        """Alias para compatibilidad hacia atrás con v0.2 temprana."""
+        return self.decision_status
+
+
+def compute_state_hash(state_dict: Dict[str, Any]) -> str:
+    """Calcula un hash SHA-256 determinista para el estado canónico."""
+    canonical = json.dumps(state_dict, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()

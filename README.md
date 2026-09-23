@@ -2,7 +2,7 @@
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-105%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-113%20passed-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
 [![TypeSafe AI](https://img.shields.io/badge/engine-TypeSafe%20System%20One-purple.svg)]()
@@ -92,27 +92,42 @@ Los benchmarks reproducibles con escenarios normativos de ground truth demuestra
 jev-reasoning-navigator/
 ├── jev_navigator/
 │   ├── domain/                   # Entidades puras y contratos inmutables (Pydantic v2)
-│   │   ├── models.py             # Goal, ActionCandidate, Evidence, PolicyDecision, DecisionReceipt
+│   │   ├── goal.py               # Goal, SuccessCriterion, SubGoal
+│   │   ├── action.py             # ActionCandidate, ToolCall, BatchSemantics
+│   │   ├── observation.py        # Observation, ToolOutput
+│   │   ├── evidence.py           # Evidence, GroundingStatus
+│   │   ├── assessment.py         # ProviderAssessment, JEVAssessment, RiskAssessment
+│   │   ├── decision.py           # PolicyDecision, DecisionReceipt, DecisionStatus
+│   │   ├── checkpoint.py         # Checkpoint, SessionSnapshot
+│   │   ├── state.py              # SessionState (hash canónico SHA-256 determinista)
+│   │   ├── models.py             # Re-exportador canónico de dominio
 │   │   └── interfaces.py         # Protocols: ReasoningProvider, EvidenceProvider, Executor
 │   ├── providers/                # Adaptadores de inferencia semántica
 │   │   ├── typesafe.py           # Adaptador de TypeSafe AI System One con fail-safe
 │   │   └── replay.py             # ReplayProvider determinista para tests y benchmarks offline
-│   ├── reasoning/                # Evaluación de evidencias, riesgo y completitud
+│   ├── reasoning/                # Evaluación de evidencias, bucles, fundamentación y completitud
 │   │   ├── evidence.py           # EvidenceEngine (almacén, validación e invalidación)
+│   │   ├── loop_detector.py      # LoopDetector y análisis de anomalías
+│   │   ├── grounding.py          # GroundingVerifier (fundamentación empírica estricta)
 │   │   ├── risk.py               # RiskEngine (inspección de argumentos shell y archivos)
 │   │   └── completion.py         # CompletionVerifier (anti-premature finish)
 │   ├── policy/                   # Políticas operacionales de admisión
-│   │   ├── risk.py               # ToolSpec y ToolRegistry extensible
+│   │   ├── registry.py           # ToolRegistry y ToolSpec tipados
+│   │   ├── permissions.py        # PermissionManager y control de acceso RBAC
 │   │   ├── failsafe.py           # FailSafePolicy para caídas de red o incertidumbre
 │   │   └── engine.py             # PolicyEngine (matriz ALLOW / BLOCK / REPLAN / ABSTAIN)
 │   ├── runtime/                  # Estado, orquestación, checkpoints y ejecución
-│   │   ├── state.py              # SessionState (hash canónico SHA-256 determinista)
+│   │   ├── state_store.py        # InMemoryStateStore y abstracciones de persistencia
 │   │   ├── checkpoints.py        # CheckpointManager y rollback con invalidación de descendientes
 │   │   ├── executor.py           # SecureExecutor y excepción PolicyViolation
 │   │   └── navigator.py          # Navigator (orquestador del pipeline completo)
+│   ├── integrations/             # Integraciones externas y protocolos
+│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.0
+│   │       └── server.py         # Servidor MCP stdio con registro formal de herramientas
 │   ├── evaluation/               # Framework de benchmarking y métricas
 │   │   ├── scenarios.py          # ScenarioCatalog y generador con ground truth
 │   │   ├── metrics.py            # Precision, Recall, F1, FalseAllowRate, percentiles p50/p95
+│   │   ├── reports.py            # Generador formal de informes de benchmark
 │   │   └── runner.py             # BenchmarkRunner y motor de ablaciones
 │   ├── interceptor/              # Servidor MCP y middleware de tiempo real
 │   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + v0.2)
@@ -120,7 +135,7 @@ jev-reasoning-navigator/
 │   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich
 │   ├── live_agent.py             # Agente autónomo con Gemini supervisado en vivo
 │   └── dashboard.py              # Dashboard TUI interactivo en tiempo real
-├── tests/                        # 105 tests unitarios y de integración pasando al 100%
+├── tests/                        # 113 tests unitarios y de integración pasando al 100%
 ├── pyproject.toml
 └── README.md
 ```
@@ -207,7 +222,7 @@ uv run jev-live "Corregir función en parser.py" --model gemini-2.5-flash --once
   "mcpServers": {
     "jev-navigator": {
       "command": "uv",
-      "args": ["run", "python", "-m", "jev_navigator.interceptor.mcp_bridge"],
+      "args": ["run", "jev-mcp"],
       "cwd": "C:/ruta/al/proyecto/jev-reasoning-navigator"
     }
   }
@@ -271,11 +286,11 @@ if decision.status == "replan":
 
 ## 9. Verificación de la Suite de Pruebas
 
-Toda la arquitectura v0.2 y la compatibilidad con v0.1 están respaldadas por **105 pruebas unitarias automatizadas**:
+Toda la arquitectura v0.2 y la compatibilidad con v0.1 están respaldadas por **113 pruebas unitarias y de integración automatizadas**:
 
 ```bash
 uv run pytest -v
-# ============================ 105 passed in 33.76s =============================
+# ============================ 113 passed in 36.28s =============================
 ```
 
 ---

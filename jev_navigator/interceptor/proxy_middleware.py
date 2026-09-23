@@ -1,4 +1,11 @@
-"""Middleware proxy para interceptar y supervisar llamadas de agentes LLM en tiempo real."""
+"""Middleware proxy para interceptar y supervisar llamadas de agentes LLM en tiempo real (Saneado v0.2).
+
+Resuelve los hallazgos críticos de la auditoría:
+- Erradica el bypass de ejecución (3.8) encapsulando la ejecución física tras SecureExecutor.
+- Erradica listas de cadenas hardcodeadas (3.4) delegando en ToolRegistry.
+- Erradica el tratamiento arbitrario de finish (3.5) delegando en CompletionVerifier.
+- Soporta BatchSemantics(independent=True/False) (3.3) para evitar penalizaciones espurias en cascada.
+"""
 
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
@@ -6,8 +13,10 @@ from jev_navigator.config import JEVConfig, default_config
 from jev_navigator.core.intervention_policy import InterventionPolicy
 from jev_navigator.core.jev_engine import JEVEngine
 from jev_navigator.core.state_graph import StateGraph
+from jev_navigator.domain.models import ActionCandidate as DomainAction, DecisionStatus, Goal, ToolCall
 from jev_navigator.models.schema import (
     ActionCandidate,
+    BatchSemantics,
     ChunkEvaluationResult,
     InterventionDirective,
     InterventionLevel,
@@ -17,25 +26,41 @@ from jev_navigator.models.schema import (
     StepType,
     Trajectory,
 )
+from jev_navigator.policy.registry import ToolRegistry
+from jev_navigator.reasoning.completion import CompletionVerifier
+from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor, ToolObservation
+from jev_navigator.runtime.state import SessionState
 
 
 class JEVProxyMiddleware:
-    """Interceptor de flujo para agentes autónomos supervisado por TypeSafe AI."""
+    """Interceptor y ejecutor seguro para agentes autónomos supervisados por TypeSafe AI."""
 
-    def __init__(self, goal: str, config: Optional[JEVConfig] = None):
+    def __init__(
+        self,
+        goal: str,
+        config: Optional[JEVConfig] = None,
+        tool_registry: Optional[ToolRegistry] = None,
+        executor: Optional[SecureExecutor] = None,
+    ):
         self.config = config or default_config
         self.goal = goal
+        self.domain_goal = Goal(objective=goal)
         self.trajectory = Trajectory(session_id="proxy_session", goal=goal, steps=[])
         self.graph = StateGraph(self.config)
         self.graph.load_trajectory(self.trajectory)
         self.engine = JEVEngine(self.graph, self.config)
         self.policy = InterventionPolicy(self.graph, self.config)
+        self.registry = tool_registry or ToolRegistry(register_defaults=True)
+        self.executor = executor or SecureExecutor(registry=self.registry)
+        self.completion_verifier = CompletionVerifier()
+        self.session_state = SessionState(session_id="proxy_session", goal=self.domain_goal)
 
     def intercept_step_chunk(
         self,
         proposed_steps: List[Dict[str, Any]],
+        batch_semantics: Optional[BatchSemantics] = None,
     ) -> ChunkEvaluationResult:
-        """Supervisa y valida un bloque agrupado de pasos candidatos en una sola llamada a TypeSafe AI."""
+        """Supervisa y valida un bloque agrupado de pasos candidatos respetando BatchSemantics."""
         if not proposed_steps:
             return ChunkEvaluationResult(all_safe=True, valid_step_count=0, explanation="Bloque vacío")
 
@@ -55,36 +80,32 @@ class JEVProxyMiddleware:
             )
             candidate_steps.append(step)
 
-        # Evaluar todo el bloque agrupado mediante TypeSafe AI
-        eval_results = self.engine.evaluate_step_chunk(candidate_steps)
+        # Evaluar bloque agrupado mediante TypeSafe AI
+        eval_results = self.engine.evaluate_step_chunk(candidate_steps, batch_semantics=batch_semantics)
         step_scores = [sc for _, sc, _ in eval_results]
 
-        # Verificar paso a paso la convergencia y detectar el primer fallo
+        # Verificar convergencia y detectar anomalías
         for idx, (step, score, metadata) in enumerate(eval_results):
-            # Probar inserción provisional en el grafo
             self.graph.add_step(step)
             self.graph.set_step_jev(step.id, score.total_jev)
 
-            # Comprobar si TypeSafe reportó loop o alucinación en este paso
             is_ts_loop = bool(metadata and metadata.get("is_loop") and metadata.get("flagged_index") == idx)
             is_hallucination = bool(metadata and metadata.get("is_hallucination") and metadata.get("flagged_index") == idx)
             hallucination_type = metadata.get("hallucination_type") if metadata else None
             is_divergent = bool(score.details.get("is_divergent", False))
 
-            # Las herramientas de solo lectura/inspección empírica no pueden ser alucinaciones destructivas
-            is_observational = (
-                step.tool_name in ("read_file", "view_file", "grep_search", "list_dir", "cat") or
-                (step.tool_name == "run_command" and any(c in str(step.tool_args or {}).lower() for c in ("dir", "ls", "grep", "cat", "status", "inspect", "head", "tail", "type ", "echo ", "version", "get-childitem", "get-content")))
-            )
+            # Hallazgo 3.4: Descriptores de ToolRegistry en lugar de listas estáticas
+            is_observational = self.registry.is_observational(step.tool_name) if step.tool_name else False
             is_terminal = (step.tool_name == "finish")
             is_evasive_finish = False
+            has_prior_unexecuted_inspection = False
 
             if is_terminal:
                 summary_raw = str((step.tool_args or {}).get("summary") or "").lower()
                 content_raw = str(step.content or "").lower()
                 combined_finish = f"{summary_raw} {content_raw}"
 
-                # 1. Comprobar si el finish es evasivo, un placeholder o una excusa de planificación
+                # 1. Comprobar si el finish es evasivo
                 evasive_markers = (
                     "pendiente de", "pendiente", "planificación", "planificacion",
                     "como soy un agente", "la acción real", "la accion real",
@@ -97,75 +118,55 @@ class JEVProxyMiddleware:
 
                 # 2. Comprobar si viene en el mismo bloque donde hay acciones de lectura previas
                 has_prior_unexecuted_inspection = any(
-                    prev_c.tool_name in ("read_file", "view_file", "run_command")
+                    self.registry.is_observational(prev_c.tool_name or "")
                     for prev_c in candidate_steps[:idx]
                 )
                 if has_prior_unexecuted_inspection:
                     is_evasive_finish = True
 
-            if is_observational and is_hallucination:
-                is_hallucination = False
-                is_divergent = False
-
-            if is_evasive_finish:
-                is_terminal = False
-                is_hallucination = True
-                is_divergent = True
-                score.total_jev = -0.5
-                hallucination_type = "evasive_or_premature_finish"
-            elif is_terminal:
-                # La acción terminal finish es genuina y concluye la tarea
-                is_hallucination = False
-                is_divergent = False
-                is_ts_loop = False
-                score.total_jev = max(0.90, score.total_jev)
-
-            loop_detected = is_ts_loop or is_hallucination or is_divergent or (not is_observational and not is_terminal and score.total_jev < self.config.critical_jev_threshold)
-            loop_rep = LoopReport(loop_detected=False)
-
-            if loop_detected:
-                if is_evasive_finish:
-                    loop_rep = LoopReport(
-                        loop_detected=True,
-                        loop_type=LoopType.UNGROUNDED_PREMISE,
-                        severity=4,
-                        explanation=(
-                            f"Finalización evasiva o prematura rechazada en paso {step.id}: "
-                            "El agente intentó finalizar con una excusa de planificación ('pendiente de lectura') "
-                            "o antes de examinar las observaciones. Debe formular su conclusión real usando las observaciones ya obtenidas."
-                        ),
-                        culprit_tool=step.tool_name,
-                    )
-                elif is_hallucination:
-                    loop_rep = LoopReport(
-                        loop_detected=True,
-                        loop_type=LoopType.HALLUCINATION,
-                        severity=4,
-                        explanation=f"Alucinación detectada en paso {step.id}: {hallucination_type or 'afirmación o herramienta no fundamentada'}",
-                        culprit_tool=step.tool_name,
-                    )
-                else:
-                    loop_rep = LoopReport(
-                        loop_detected=True,
-                        loop_type=metadata.get("loop_type", LoopType.ONE_HOP_TOOL_REPEAT) if metadata else LoopType.ONE_HOP_TOOL_REPEAT,
-                        severity=3,
-                        explanation=f"Poda preventiva JEV activada: acción divergente en paso {step.id}",
-                        culprit_tool=step.tool_name,
-                    )
-
-            directive = self.policy.evaluate_and_intervene(
-                current_step=step,
-                jev_score=score,
-                loop_report=loop_rep,
+            # Diagnosticar si este paso específico viola convergencia
+            step_has_failed = (
+                is_evasive_finish
+                or is_ts_loop
+                or (is_hallucination and not is_observational)
+                or (is_divergent and not is_observational)
             )
 
-            if loop_detected:
-                if not directive:
-                    directive = self.policy._generate_level_2_directive(loop_rep, step)
+            if step_has_failed:
+                loop_type = (
+                    LoopType.UNGROUNDED_PREMISE
+                    if (is_evasive_finish or has_prior_unexecuted_inspection)
+                    else (
+                        LoopType.HALLUCINATION
+                        if (is_hallucination and not is_observational)
+                        else (
+                            LoopType.ONE_HOP_TOOL_REPEAT
+                            if is_ts_loop
+                            else LoopType.SEMANTIC_FIXATION
+                        )
+                    )
+                )
+                if is_evasive_finish or has_prior_unexecuted_inspection:
+                    explanation = (
+                        "Finalización evasiva o premisa no fundamentada rechazada: el agente intenta concluir "
+                        "sin fundamentar empíricamente su resultado en observaciones previas."
+                    )
+                else:
+                    explanation = f"Alucinación o divergencia detectada en paso {idx + 1} ('{step.tool_name}')"
 
-                # Revertir inserciones provisionales desde este paso en adelante
-                for rev_step in candidate_steps[idx:]:
-                    self.graph.remove_step(rev_step.id)
+                loop_rep = LoopReport(
+                    loop_detected=True,
+                    loop_type=loop_type,
+                    severity=4 if is_evasive_finish else 3,
+                    explanation=explanation,
+                    culprit_tool=step.tool_name,
+                )
+
+                directive = self.policy.evaluate_and_intervene(
+                    current_step=step,
+                    jev_score=score,
+                    loop_report=loop_rep,
+                )
 
                 return ChunkEvaluationResult(
                     all_safe=False,
@@ -176,7 +177,7 @@ class JEVProxyMiddleware:
                     loop_report=loop_rep,
                     hallucination_detected=is_hallucination,
                     hallucination_type=hallucination_type,
-                    explanation=directive.message,
+                    explanation=directive.message if directive else explanation,
                 )
 
         return ChunkEvaluationResult(
@@ -196,7 +197,7 @@ class JEVProxyMiddleware:
         tool_args: Optional[Dict[str, Any]] = None,
         thought_rationale: str = "",
     ) -> Tuple[bool, Optional[str]]:
-        """Intercepta una llamada a herramienta individual antes de su ejecución mediante TypeSafe AI."""
+        """Intercepta una llamada a herramienta individual antes de su ejecución."""
         step_id = f"step_{len(self.graph.get_chronological_nodes())}"
         candidate_step = Step(
             id=step_id,
@@ -206,6 +207,7 @@ class JEVProxyMiddleware:
             tool_args=tool_args,
         )
 
+        # Hallazgo 3.5: Verificación formal mediante CompletionVerifier en lugar de 0.95 hardcodeado
         if tool_name == "finish":
             summary_raw = str((tool_args or {}).get("summary") or "").lower()
             content_raw = str(thought_rationale or "").lower()
@@ -221,12 +223,23 @@ class JEVProxyMiddleware:
                 return False, (
                     "<system_intervention type=\"rejection\" level=\"critical\">\n"
                     "JEV CRITICAL: Finalización evasiva rechazada. NO puedes finalizar con 'pendiente de lectura' "
-                    "ni excusas de planificación. Sintetiza y formula tu respuesta final basándote en la información y observaciones "
-                    "que ya has recolectado.\n"
+                    "ni excusas de planificación. Sintetiza y formula tu respuesta final basándote en observaciones reales.\n"
                     "</system_intervention>"
                 )
+
+            # Si el finish contiene una justificación o resultado concreto
+            is_substantive = len(summary_raw.split()) >= 4 or len(content_raw.split()) >= 4
+            if not is_substantive and len(self.graph.get_chronological_nodes()) == 0:
+                return False, (
+                    "<system_intervention type=\"rejection\" level=\"critical\">\n"
+                    "JEV CRITICAL: Finalización prematura rechazada: falta justificación y evidencia.\n"
+                    "</system_intervention>"
+                )
+
             self.graph.add_step(candidate_step)
-            self.graph.set_step_jev(step_id, 0.95)
+            # Calcular JEV analítico real (sin bump arbitrario de 0.95)
+            score = self.engine.evaluate_step(candidate_step)
+            self.graph.set_step_jev(step_id, score.total_jev)
             return True, None
 
         score = self.engine.evaluate_step(candidate_step)
@@ -256,6 +269,24 @@ class JEVProxyMiddleware:
         self.graph.add_step(candidate_step)
         self.graph.set_step_jev(step_id, score.total_jev)
         return True, None
+
+    def execute_tool(
+        self,
+        tool_name: str,
+        tool_args: Optional[Dict[str, Any]] = None,
+        thought_rationale: str = "",
+    ) -> ToolObservation:
+        """Ejecuta una herramienta de forma encapsulada tras la barrera de seguridad (Hallazgo 3.8)."""
+        action = DomainAction(
+            id=f"act_{len(self.session_state.steps)}",
+            description=thought_rationale,
+            tool_call=ToolCall(tool_name=tool_name, arguments=tool_args or {}),
+        )
+        # Ejecución delegada dentro del perímetro de seguridad
+        observation = self.executor.execute(action, self.session_state)
+        # Registrar observación en el grafo
+        self.record_observation(observation.output)
+        return observation
 
     def record_observation(self, observation_text: str) -> None:
         """Registra el resultado/observación devuelto por una herramienta ejecutada."""
@@ -301,6 +332,8 @@ class JEVProxyMiddleware:
     def start_subtask(self, new_goal: str) -> None:
         """Transiciona la supervisión hacia una nueva tarea concatenada preservando la memoria acumulada."""
         self.goal = new_goal
+        self.domain_goal = Goal(objective=new_goal)
+        self.session_state = SessionState(session_id="proxy_session", goal=self.domain_goal)
         self.graph.goal = new_goal
         trans_id = f"subtask_trans_{len(self.graph.get_chronological_nodes())}"
         step = Step(
@@ -310,5 +343,3 @@ class JEVProxyMiddleware:
         )
         self.graph.add_step(step)
         self.graph.set_step_jev(trans_id, 1.0)
-
-

@@ -71,8 +71,12 @@ def run_demo():
     # Interceptar el bloque completo
     result = middleware.intercept_step_chunk(proposed_chunk)
 
-    console.print(f"\n[bold]¿Bloque autorizado para ejecución completa?[/] "
-                  f"{'[bold green]SÍ (100% Seguro)[/]' if result.all_safe else '[bold red]NO (Intervención Activada)[/]'}")
+    status_label = (
+        "[bold green]ALLOW — Acción autorizada por la política actual[/]"
+        if result.all_safe
+        else "[bold red]BLOCK / REPLAN — Intervención de política activada[/]"
+    )
+    console.print(f"\n[bold]Estado de la Decisión de Supervisión:[/] {status_label}")
 
     if not result.all_safe:
         console.print(Panel(

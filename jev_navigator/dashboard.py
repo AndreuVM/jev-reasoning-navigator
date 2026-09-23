@@ -41,7 +41,7 @@ def render_noul_bar(prob: float, width: int = 16) -> str:
     if prob < 0.35:
         fill_char = "[bold green]█[/]"
         style = "bold green"
-        tag = "SEGURO"
+        tag = "ALLOW (BAJO RIESGO)"
     elif prob < 0.60:
         fill_char = "[bold yellow]█[/]"
         style = "bold yellow"
@@ -883,7 +883,7 @@ def _execute_single_live_task(
                 )
                 dash.record_step_result(
                     step_name=f"Paso {dash.executed_steps+1}: {tool_name}",
-                    score_text="Noul 0.10 • Seguro",
+                    score_text="Noul 0.10 • ALLOW",
                     is_safe=True,
                     explanation="Acción constructiva",
                 )

@@ -482,57 +482,21 @@ def run_live_gemini_agent(
                     final_summary = summary
                     final_answer = summary
                     observation = f"Tarea finalizada: {summary}"
-            elif tool_name == "run_command":
-                cmd = tool_args.get("command", "")
-                if cmd:
-                    try:
-                        import subprocess
-                        if sys.platform == "win32":
-                            proc = subprocess.run(
-                                ["powershell", "-NoProfile", "-Command", cmd],
-                                capture_output=True,
-                                timeout=15,
-                            )
-                            raw_out = proc.stdout if proc.stdout.strip() else proc.stderr
-                            output = decode_process_bytes(raw_out)
-                            if not output.strip():
-                                proc_cmd = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
-                                raw_cmd_out = proc_cmd.stdout or proc_cmd.stderr
-                                output = decode_process_bytes(raw_cmd_out)
-                        else:
-                            proc = subprocess.run(cmd, shell=True, capture_output=True, timeout=15)
-                            output = decode_process_bytes(proc.stdout or proc.stderr)
-                        observation = prune_observation_output(output, max_chars=2000)
-                    except Exception as e:
-                        observation = f"Error ejecutando '{cmd}': {e}"
-                else:
-                    observation = "Comando vacío."
-            elif tool_name == "read_file":
-                path = tool_args.get("path", "")
-                if path and os.path.exists(path):
-                    try:
-                        with open(path, "rb") as f:
-                            raw_bytes = f.read(60000)
-                        content = decode_process_bytes(raw_bytes)
-                        if len(content) >= 60000:
-                            content += "\n\n[... Archivo muy extenso: truncado a 60.000 caracteres por seguridad de contexto ...]"
-                        observation = f"Contenido de '{path}':\n{content}"
-                    except Exception as e:
-                        observation = f"Error leyendo '{path}': {e}"
-                else:
-                    observation = f"Error: Archivo '{path}' no existe en disco."
-            elif tool_name == "edit_file":
-                path = tool_args.get("path", "")
-                observation = f"Archivo {path} modificado con éxito"
             else:
-                observation = f"Acción {tool_name} ejecutada satisfactoriamente"
+                try:
+                    tool_obs = middleware.execute_tool(tool_name, tool_args, thought_text)
+                    observation = prune_observation_output(tool_obs.output, max_chars=2000)
+                except Exception as e:
+                    observation = f"Error ejecutando '{tool_name}' bajo supervisión JEV: {e}"
 
             executed_step_records.append({
                 "tool_name": tool_name,
                 "tool_args": tool_args,
                 "observation": observation,
             })
-            middleware.record_observation(observation)
+            # Nota: middleware.record_observation ya se invoca internamente en execute_tool si aplica
+            if tool_name == "finish":
+                middleware.record_observation(observation)
             conversation_history.append({
                 "role": "assistant",
                 "content": f"Thought: {thought_text}\nAction: {tool_name} {json.dumps(tool_args)}",

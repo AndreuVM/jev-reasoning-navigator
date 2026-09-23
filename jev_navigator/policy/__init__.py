@@ -1,12 +1,14 @@
-"""Capa de Política y Gobernanza Operacional para JEV Reasoning Navigator v0.2."""
+"""Motor de políticas y gobierno de acceso v0.2."""
 
-from jev_navigator.policy.risk import ToolSpec, ToolRegistry
-from jev_navigator.policy.failsafe import FailSafePolicy
 from jev_navigator.policy.engine import PolicyEngine
+from jev_navigator.policy.failsafe import FailSafePolicy
+from jev_navigator.policy.permissions import PermissionManager
+from jev_navigator.policy.registry import ToolRegistry, ToolSpec
 
 __all__ = [
-    "ToolSpec",
-    "ToolRegistry",
-    "FailSafePolicy",
     "PolicyEngine",
+    "FailSafePolicy",
+    "PermissionManager",
+    "ToolRegistry",
+    "ToolSpec",
 ]

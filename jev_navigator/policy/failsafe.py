@@ -26,8 +26,12 @@ class FailSafePolicy(BaseModel):
         ):
             return DecisionStatus.BLOCK
 
-        # 2. Si la acción es de solo lectura y está habilitado el modo tolerante a fallos
-        if self.allow_read_only_on_provider_failure and is_read_only and risk.level == RiskLevel.LOW:
+        # Si se desactivó el bloqueo destructivo (simulando v0.1 fail-open en ablaciones)
+        if not self.block_destructive_on_provider_failure:
+            return DecisionStatus.ALLOW
+
+        # 2. Si se permite explícitamente lectura en caída del proveedor
+        if self.allow_read_only_on_provider_failure and is_read_only:
             return DecisionStatus.ALLOW
 
         # 3. Por defecto ante caída del supervisor: abstención segura

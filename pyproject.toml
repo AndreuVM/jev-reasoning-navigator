@@ -23,7 +23,7 @@ dev = [
 jev-nav = "jev_navigator.cli:main"
 jev-live = "jev_navigator.live_agent:main"
 jev-dash = "jev_navigator.dashboard:main"
-jev-mcp = "jev_navigator.interceptor.mcp_bridge:main"
+jev-mcp = "jev_navigator.integrations.mcp.server:main"
 
 [build-system]
 requires = ["hatchling"]

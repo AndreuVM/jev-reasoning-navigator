@@ -5,8 +5,9 @@ Semantic Judgment (JEV) != Operational Policy (PolicyEngine) != Physical Executi
 """
 
 import time
-import uuid
 from typing import Any, Dict, List, Optional, Set, Tuple
+import uuid
+
 from jev_navigator.domain.models import (
     ActionCandidate,
     DecisionReceipt,
@@ -20,7 +21,7 @@ from jev_navigator.domain.models import (
     compute_state_hash,
 )
 from jev_navigator.policy.failsafe import FailSafePolicy
-from jev_navigator.policy.risk import ToolRegistry
+from jev_navigator.policy.registry import ToolRegistry
 
 
 class PolicyEngine:
@@ -93,11 +94,13 @@ class PolicyEngine:
             )
             reason_codes.append(f"UNVERIFIED_COMPLETION: {', '.join(reasons)}")
 
-        # 4. Evaluación de disponibilidad del proveedor (Fail-safe explícito)
+        # 4. Evaluación de disponibilidad del proveedor (Fail-safe explícito - Hallazgo 3.2)
         elif provider_assessment is not None and not provider_assessment.available:
             status = self.failsafe.resolve_provider_failure(risk, is_read_only)
             if status == DecisionStatus.BLOCK:
                 reason_codes.append("PROVIDER_UNAVAILABLE_DESTRUCTIVE_BLOCK")
+            elif status == DecisionStatus.ALLOW:
+                reason_codes.append("PROVIDER_UNAVAILABLE_READ_ONLY_ALLOWED")
             else:
                 reason_codes.append("PROVIDER_UNAVAILABLE_FAILSAFE_ABSTAIN")
 
@@ -152,14 +155,39 @@ class PolicyEngine:
         )
 
         latency_ms = (time.perf_counter() - start_time) * 1000.0
+
+        # Construcción exhaustiva del recibo según Contrato Cuadro 1 de Auditoría
         receipt = DecisionReceipt(
+            # Contexto
             decision_id=f"dec_{uuid.uuid4().hex[:12]}",
             session_id=session_id,
             action_id=action.id,
-            decision=status,
             state_hash=compute_state_hash(state),
             action_hash=compute_action_hash(action),
+            # Proveedor
+            provider_available=provider_assessment.available if provider_assessment else False,
+            model_identifier=provider_assessment.model if provider_assessment else None,
             latency_ms=round(latency_ms, 2),
+            # Razonamiento
+            progress_score=provider_assessment.progress_probability if provider_assessment else None,
+            grounded_score=provider_assessment.grounded_probability if provider_assessment else None,
+            loop_type=(
+                provider_assessment.reason_codes[0]
+                if (provider_assessment and provider_assessment.reason_codes)
+                else None
+            ),
+            novelty_score=provider_assessment.novelty_probability if provider_assessment else None,
+            # Riesgo
+            risk_level=risk.level.value,
+            risk_reasons=risk.reasons,
+            destructive_potential=getattr(risk, "destructive_potential", False),
+            # Política
+            decision_status=status,
+            reason_codes=reason_codes,
+            # Ejecución (pendiente al momento de la decisión)
+            is_executed=False,
+            observation_id=None,
+            execution_timestamp=None,
         )
 
         return decision, receipt

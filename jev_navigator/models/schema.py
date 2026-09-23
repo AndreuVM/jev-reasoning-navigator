@@ -1,4 +1,4 @@
-"""Esquemas Pydantic v2 para estados cognitivos, acciones, trazas e intervenciones."""
+"""Esquemas Pydantic v2 para estados cognitivos, acciones, trazas e intervenciones (Saneado v0.2)."""
 
 from enum import Enum
 import hashlib
@@ -19,7 +19,7 @@ class StepType(str, Enum):
 
 
 class Step(BaseModel):
-    """Representación de un paso cognitivo individual en la trayectoria del agente."""
+    """Representación de un paso cognitivo individual en la trayectoria del agente (purgado de embeddings)."""
     id: str = Field(description="Identificador único del paso (ej. step_0, step_1)")
     step_type: StepType = Field(description="Tipo de paso cognitivo")
     content: str = Field(default="", description="Contenido textual del pensamiento, respuesta o resultado")
@@ -27,7 +27,6 @@ class Step(BaseModel):
     tool_args: Optional[Dict[str, Any]] = Field(default=None, description="Argumentos de la herramienta invocada")
     parent_id: Optional[str] = Field(default=None, description="ID del paso padre en el árbol de razonamiento")
     timestamp: float = Field(default_factory=time.time, description="Marca de tiempo en segundos")
-    embedding: Optional[List[float]] = Field(default=None, description="Vector de embedding del paso")
     semantic_hash: Optional[str] = Field(default=None, description="Hash semántico normalizado del paso")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadatos auxiliares del paso")
 
@@ -47,7 +46,7 @@ class Step(BaseModel):
 
     @property
     def full_text_representation(self) -> str:
-        """Texto consolidado para extracción de embeddings."""
+        """Texto consolidado para representación del paso."""
         components = []
         if self.step_type == StepType.THOUGHT:
             components.append(f"Thought: {self.content}")
@@ -72,7 +71,6 @@ class ActionCandidate(BaseModel):
     tool_args: Optional[Dict[str, Any]] = Field(default=None, description="Parámetros propuestos")
     rationale: Optional[str] = Field(default=None, description="Motivo o hipótesis asociada")
     estimated_cost: Optional[float] = Field(default=None, description="Coste estimado de computación o llamadas")
-    embedding: Optional[List[float]] = Field(default=None, description="Vector de embedding del candidato")
 
     @property
     def full_text_representation(self) -> str:
@@ -90,7 +88,6 @@ class Trajectory(BaseModel):
     """Trayectoria completa o sesión de razonamiento del agente."""
     session_id: str = Field(description="Identificador de la sesión")
     goal: str = Field(description="Objetivo principal del usuario hacia el cual debe converger el razonamiento")
-    goal_embedding: Optional[List[float]] = Field(default=None, description="Embedding del objetivo")
     steps: List[Step] = Field(default_factory=list, description="Lista cronológica de pasos cognitivos")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Metadatos globales de la sesión")
 
@@ -111,21 +108,52 @@ class JEVScore(BaseModel):
     details: Dict[str, Any] = Field(default_factory=dict, description="Desglose interno de similitudes y pesos")
 
 
+# --- Taxonomía Segregada de Anomalías (Hallazgo 3.13) ---
+
+class ConvergenceAnomaly(str, Enum):
+    """Dimensión analítica de convergencia algorítmica."""
+    NONE = "none"
+    ONE_HOP_REPEAT = "one_hop_repeat"
+    N_HOP_CYCLE = "n_hop_cycle"
+    ENTROPIC_STAGNATION = "entropic_stagnation"
+    SEMANTIC_FIXATION = "semantic_fixation"
+
+
+class GroundingAnomaly(str, Enum):
+    """Dimensión analítica de solidez empírica y fundamentación fáctica."""
+    NONE = "none"
+    UNGROUNDED_PREMISE = "ungrounded_premise"
+    HALLUCINATION = "hallucination"
+    CONTRADICTED_EVIDENCE = "contradicted_evidence"
+
+
+class InstrumentalRiskAnomaly(str, Enum):
+    """Dimensión analítica de riesgo instrumental y efectos colaterales."""
+    NONE = "none"
+    DESTRUCTIVE_CALL = "destructive_call"
+    UNAUTHORIZED_TOOL = "unauthorized_tool"
+    UNCONFIRMED_ACTION = "unconfirmed_action"
+    RESOURCE_EXHAUSTION = "resource_exhaustion"
+
+
 class LoopType(str, Enum):
-    """Tipos clasificados de bucles o fallos de convergencia."""
+    """Tipos clasificados de bucles o fallos de convergencia (mantenido para compatibilidad)."""
     NONE = "none"
     ONE_HOP_TOOL_REPEAT = "one_hop_tool_repeat"       # Reintento idéntico inmediato de herramienta
     N_HOP_CYCLE = "n_hop_cycle"                       # Ciclo cerrado A -> B -> C -> A
-    SEMANTIC_FIXATION = "semantic_fixation"           # Fijación en hipótesis redundante (similitud > 0.85)
+    SEMANTIC_FIXATION = "semantic_fixation"           # Fijación en hipótesis redundante
     ENTROPIC_STAGNATION = "entropic_stagnation"       # Rumiación verbal creciente sin aporte de información
-    HALLUCINATION = "hallucination"                   # Alucinación de hechos, archivos o estados no fundamentados
+    HALLUCINATION = "hallucination"                   # Alucinación de hechos o estados no fundamentados
     UNGROUNDED_PREMISE = "ungrounded_premise"         # Premisa o suposición no verificada empíricamente
 
 
 class LoopReport(BaseModel):
-    """Informe de detección de bucles para la trayectoria actual."""
+    """Informe de detección de bucles y anomalías segregadas para la trayectoria actual."""
     loop_detected: bool = Field(default=False, description="Indica si se ha detectado un bucle o estancamiento")
     loop_type: LoopType = Field(default=LoopType.NONE, description="Tipo de bucle detectado")
+    convergence: ConvergenceAnomaly = Field(default=ConvergenceAnomaly.NONE, description="Dimensión de convergencia algorítmica")
+    grounding: GroundingAnomaly = Field(default=GroundingAnomaly.NONE, description="Dimensión de solidez empírica")
+    instrumental_risk: InstrumentalRiskAnomaly = Field(default=InstrumentalRiskAnomaly.NONE, description="Dimensión de riesgo instrumental")
     severity: int = Field(default=0, ge=0, le=5, description="Severidad del bucle (0=ninguno, 1=leve, 5=crítico)")
     cycle_nodes: List[str] = Field(default_factory=list, description="Lista de IDs de pasos involucrados en el ciclo")
     confidence: float = Field(default=0.0, ge=0.0, le=1.0, description="Nivel de confianza en la detección")
@@ -151,6 +179,11 @@ class InterventionDirective(BaseModel):
     context_injection: str = Field(description="Texto formateado listo para inyección en el prompt")
 
 
+class BatchSemantics(BaseModel):
+    """Parámetros semánticos para el procesamiento por lotes (chunking)."""
+    independent: bool = Field(default=False, description="Si es True, las acciones del bloque son independientes y un fallo no invalida a las demás")
+
+
 class ChunkEvaluationResult(BaseModel):
     """Resultado consolidado de la evaluación de un bloque (chunk) de pasos cognitivos."""
     all_safe: bool = Field(default=True, description="Indica si todos los pasos del bloque son seguros y convergentes")
@@ -162,4 +195,3 @@ class ChunkEvaluationResult(BaseModel):
     hallucination_detected: bool = Field(default=False, description="Indica si se identificó una alucinación en el bloque")
     hallucination_type: Optional[str] = Field(default=None, description="Tipo o clasificación de la alucinación detectada")
     explanation: str = Field(default="", description="Detalle explicativo del diagnóstico del bloque")
-

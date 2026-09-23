@@ -156,7 +156,7 @@ def analyze_trace_file(file_path: str, config: Optional[JEVConfig] = None) -> No
         diag_label = ts_chunk.get("hallucination_type") or ("LOOP" if is_cycle else "NONE")
 
         progress_label = "DIRECT_SOLUTION" if sc.p_progress >= 0.9 else ("SIGNIFICANT" if sc.p_progress >= 0.7 else "MINOR")
-        status_tag = "[red]BLOQUEADO[/]" if (is_cycle or sc.total_jev < 0) else "[green]SEGURO[/]"
+        status_tag = "[red]BLOCK[/]" if (is_cycle or sc.total_jev < 0) else "[green]ALLOW[/]"
 
         table.add_row(
             step.id,

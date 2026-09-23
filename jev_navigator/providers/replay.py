@@ -137,3 +137,6 @@ class ReplayProvider(BaseReasoningProvider):
             )
 
         return results
+
+
+ReplayReasoningProvider = ReplayProvider

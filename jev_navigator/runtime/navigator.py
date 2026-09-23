@@ -5,6 +5,7 @@ Proposal -> Evidence -> Risk -> JEV Provider -> Policy -> Decision -> Execution 
 con soporte de checkpoints automáticos, chunking tipado y rollback determinista.
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional, Set, Tuple
 from jev_navigator.domain.interfaces import ReasoningProvider
 from jev_navigator.domain.models import (
@@ -15,6 +16,7 @@ from jev_navigator.domain.models import (
     PolicyDecision,
     ProviderAssessment,
 )
+from jev_navigator.models.schema import BatchSemantics
 from jev_navigator.policy.engine import PolicyEngine
 from jev_navigator.reasoning.completion import CompletionAssessment, CompletionVerifier
 from jev_navigator.reasoning.evidence import EvidenceEngine
@@ -91,12 +93,15 @@ class Navigator:
     def evaluate(
         self,
         actions: List[ActionCandidate],
+        batch_semantics: Optional[BatchSemantics] = None,
     ) -> List[Tuple[ActionCandidate, ProviderAssessment, PolicyDecision, DecisionReceipt]]:
         """Evalúa un lote de acciones candidatas produciendo juicios semánticos, decisiones y recibos."""
         state = self._ensure_session()
         results: List[Tuple[ActionCandidate, ProviderAssessment, PolicyDecision, DecisionReceipt]] = []
 
-        # Separar acciones batchables vs no batchables si hay múltiples
+        is_independent = batch_semantics.independent if batch_semantics else False
+        has_diverged = False
+
         # Para cada acción aplicamos el pipeline:
         for action in actions:
             # 1. Comprobar si es un intento de finalización
@@ -113,6 +118,19 @@ class Navigator:
                 failure_reason="No assessment returned",
             )
 
+            # Si una acción anterior divergió y el lote NO es independiente, penalizar en cascada
+            if has_diverged and not is_independent:
+                assessment = ProviderAssessment(
+                    provider=assessment.provider,
+                    available=assessment.available,
+                    confidence=0.1,
+                    loop_probability=0.9,
+                    grounded_probability=0.05,
+                    progress_probability=0.01,
+                    failure_reason="Penalización en cascada por divergencia en acción previa dependiente del lote",
+                    reason_codes=["BATCH_CASCADE_REJECTION"],
+                )
+
             # 3. Evaluación contextual de riesgo operacional
             risk_assessment = self.risk_engine.assess_action_risk(action)
 
@@ -127,6 +145,9 @@ class Navigator:
                 risk_assessment=risk_assessment,
                 session_id=state.session_id,
             )
+
+            if decision.status != DecisionStatus.ALLOW:
+                has_diverged = True
 
             self.audit_receipts.append(receipt)
             results.append((action, assessment, decision, receipt))
@@ -204,10 +225,19 @@ class Navigator:
         # 4. Ejecución física con el Executor garantizado
         observation = self.executor.execute(action, state, decision)
 
+        # Actualizar el recibo de decisión con la dimensión de ejecución completada (Cuadro 1)
+        receipt_dict = receipt.model_dump()
+        receipt_dict["is_executed"] = True
+        receipt_dict["observation_id"] = f"obs_{len(state.steps)}"
+        receipt_dict["execution_timestamp"] = datetime.utcnow()
+        updated_receipt = DecisionReceipt(**receipt_dict)
+        if self.audit_receipts:
+            self.audit_receipts[-1] = updated_receipt
+
         # 5. Ingestión de evidencia y resolución de mutaciones
         if observation.success:
             if tool_name:
-                # Ingestar evidencias automáticas derivadas de la observación (gestiona internamente invalidación de mutaciones)
+                # Ingestar evidencias automáticas derivadas de la observación
                 new_evidences = self.evidence_engine.ingest_from_observation(
                     tool_name=tool_name,
                     tool_args=tool_args,
