@@ -2,8 +2,11 @@
 
 from jev_navigator.reasoning.evidence import EvidenceEngine
 from jev_navigator.reasoning.risk import RiskEngine
+from jev_navigator.reasoning.completion import CompletionAssessment, CompletionVerifier
 
 __all__ = [
     "EvidenceEngine",
     "RiskEngine",
+    "CompletionAssessment",
+    "CompletionVerifier",
 ]

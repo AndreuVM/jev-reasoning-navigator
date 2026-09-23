@@ -45,6 +45,7 @@ class PolicyEngine:
         provider_assessment: Optional[ProviderAssessment] = None,
         available_evidence: Optional[List[Evidence]] = None,
         forbidden_tools: Optional[Set[str]] = None,
+        completion_assessment: Optional[Any] = None,
         session_id: str = "default_session",
     ) -> Tuple[PolicyDecision, DecisionReceipt]:
         """Evalúa una acción candidata emitiendo una decisión formal y su recibo auditable."""
@@ -80,6 +81,16 @@ class PolicyEngine:
             if missing_evidence:
                 status = DecisionStatus.REPLAN
                 reason_codes.append(f"MISSING_REQUIRED_EVIDENCE: {', '.join(missing_evidence)}")
+
+        # 3.5. Verificación formal de completitud ante intentos de finish
+        elif completion_assessment is not None and not getattr(completion_assessment, "is_complete", True):
+            status = DecisionStatus.REPLAN
+            reasons = (
+                getattr(completion_assessment, "missing_criteria", [])
+                or getattr(completion_assessment, "unverified_claims", [])
+                or [getattr(completion_assessment, "rationale", "")]
+            )
+            reason_codes.append(f"UNVERIFIED_COMPLETION: {', '.join(reasons)}")
 
         # 4. Evaluación de disponibilidad del proveedor (Fail-safe explícito)
         elif provider_assessment is not None and not provider_assessment.available:

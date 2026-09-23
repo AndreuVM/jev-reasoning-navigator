@@ -8,15 +8,27 @@ from jev_navigator.config import JEVConfig, default_config
 from jev_navigator.core.intervention_policy import InterventionPolicy
 from jev_navigator.core.jev_engine import JEVEngine
 from jev_navigator.core.state_graph import StateGraph
-from jev_navigator.models.schema import ActionCandidate, LoopReport, LoopType, Step, StepType, Trajectory
+from jev_navigator.domain.models import ActionCandidate, Goal, ToolCall
+from jev_navigator.models.schema import LoopReport, LoopType, Step, StepType, Trajectory
 from jev_navigator.models.trace import TraceParser
+from jev_navigator.providers.typesafe import TypeSafeAdapter
+from jev_navigator.runtime.navigator import Navigator
 
 
 class MCPBridge:
     """Implementación de herramientas MCP para supervisión de razonamiento LLM."""
 
-    def __init__(self, config: Optional[JEVConfig] = None):
+    def __init__(
+        self,
+        config: Optional[JEVConfig] = None,
+        navigator: Optional[Navigator] = None,
+    ):
         self.config = config or default_config
+        if navigator is not None:
+            self.navigator = navigator
+        else:
+            provider = TypeSafeAdapter(api_key=self.config.typesafe_api_key)
+            self.navigator = Navigator(provider=provider)
 
     def evaluate_next_step(
         self,
@@ -164,6 +176,108 @@ class MCPBridge:
             "step_scores": [s.model_dump() for s in res.step_scores],
         }
 
+    def _parse_goal(self, goal_input: Any) -> Goal:
+        if isinstance(goal_input, Goal):
+            return goal_input
+        if isinstance(goal_input, str):
+            return Goal(objective=goal_input)
+        if isinstance(goal_input, dict):
+            return Goal(**goal_input)
+        return Goal(objective=str(goal_input))
+
+    def _parse_action(self, action_dict: Dict[str, Any]) -> ActionCandidate:
+        tc_data = action_dict.get("tool_call")
+        tool_call = None
+        if isinstance(tc_data, dict):
+            tool_call = ToolCall(**tc_data)
+        elif action_dict.get("tool_name"):
+            tool_call = ToolCall(
+                tool_name=action_dict.get("tool_name"),
+                arguments=action_dict.get("tool_args") or action_dict.get("arguments") or {},
+            )
+        return ActionCandidate(
+            id=action_dict.get("id", "act_mcp"),
+            description=action_dict.get("description", action_dict.get("content", "Acción MCP")),
+            tool_call=tool_call,
+            rationale=action_dict.get("rationale"),
+            requires_evidence=action_dict.get("requires_evidence", []),
+        )
+
+    def v2_start_session(self, goal: Any, session_id: Optional[str] = None) -> Dict[str, Any]:
+        """Inicia una sesión de supervisión formal v0.2."""
+        g = self._parse_goal(goal)
+        state = self.navigator.start_session(g, session_id=session_id)
+        return {
+            "session_id": state.session_id,
+            "goal": state.goal.model_dump(),
+            "state_hash": state.compute_hash(),
+            "checkpoints_count": len(state.checkpoint_ids),
+        }
+
+    def v2_evaluate_action(
+        self,
+        action: Dict[str, Any],
+        goal: Optional[Any] = None,
+        session_id: Optional[str] = None,
+    ) -> Dict[str, Any]:
+        """Evalúa formalmente una acción candidata emitiendo decisión operacional y recibo."""
+        if self.navigator.state is None:
+            g = self._parse_goal(goal or "Supervisión de agente MCP")
+            self.navigator.start_session(g, session_id=session_id)
+
+        act = self._parse_action(action)
+        decision, receipt = self.navigator.decide(act)
+        return {
+            "decision": decision.model_dump(),
+            "receipt": receipt.model_dump(),
+            "state_hash": self.navigator.state.compute_hash(),
+        }
+
+    def v2_step_and_execute(
+        self,
+        action: Dict[str, Any],
+        goal: Optional[Any] = None,
+        auto_checkpoint: bool = True,
+    ) -> Dict[str, Any]:
+        """Evalúa y ejecuta físicamente una acción autorizada con protección estricta."""
+        if self.navigator.state is None:
+            g = self._parse_goal(goal or "Supervisión de agente MCP")
+            self.navigator.start_session(g)
+
+        act = self._parse_action(action)
+        decision, obs = self.navigator.step(act, auto_checkpoint=auto_checkpoint)
+        return {
+            "decision": decision.model_dump(),
+            "observation": obs.model_dump() if obs else None,
+            "state_hash": self.navigator.state.compute_hash(),
+        }
+
+    def v2_rollback(
+        self,
+        checkpoint_id: Optional[str] = None,
+        culprit_tool: Optional[str] = None,
+        reason: str = "Rollback solicitado via MCP",
+    ) -> Dict[str, Any]:
+        """Restaura el estado al checkpoint indicado e invalida descendientes."""
+        if self.navigator.state is None:
+            raise RuntimeError("No hay sesión activa para rollback.")
+        restored = self.navigator.rollback(checkpoint_id=checkpoint_id, culprit_tool=culprit_tool, reason=reason)
+        return {
+            "restored_step_count": len(restored.steps),
+            "forbidden_tools": list(restored.forbidden_tools),
+            "state_hash": restored.compute_hash(),
+        }
+
+    def v2_get_session_state(self) -> Dict[str, Any]:
+        """Devuelve el snapshot completo del estado actual de la sesión."""
+        if self.navigator.state is None:
+            return {"active": False, "state": None}
+        return {
+            "active": True,
+            "state": self.navigator.state.to_snapshot(),
+            "state_hash": self.navigator.state.compute_hash(),
+        }
+
     def _handle_request(self, req: Dict[str, Any]) -> None:
         """Procesa una solicitud JSON-RPC individual y escribe la respuesta en stdout."""
         try:
@@ -182,7 +296,7 @@ class MCPBridge:
                         },
                         "serverInfo": {
                             "name": "jev-navigator",
-                            "version": "0.1.0"
+                            "version": "0.2.0"
                         }
                     }
                 }
@@ -194,6 +308,7 @@ class MCPBridge:
             elif method == "tools/list":
                 res = {
                     "tools": [
+                        # Herramientas v0.1
                         {
                             "name": "jev_evaluate_next_step",
                             "description": "Evalúa mediante JEV si la siguiente acción de razonamiento o llamada a herramienta es convergente o degenerativa (bucle).",
@@ -231,6 +346,65 @@ class MCPBridge:
                                 "required": ["trace_data"],
                             },
                         },
+                        # Nuevas herramientas v0.2
+                        {
+                            "name": "jev_v2_start_session",
+                            "description": "Inicia una sesión de supervisión formal v0.2 con un objetivo y checkpoint génesis.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "goal": {"type": ["string", "object"]},
+                                    "session_id": {"type": "string"},
+                                },
+                                "required": ["goal"],
+                            },
+                        },
+                        {
+                            "name": "jev_v2_evaluate_action",
+                            "description": "Evalúa una acción candidata mediante el pipeline normativo v0.2 emitiendo decisión formal y recibo auditable.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": {"type": "object"},
+                                    "goal": {"type": ["string", "object"]},
+                                    "session_id": {"type": "string"},
+                                },
+                                "required": ["action"],
+                            },
+                        },
+                        {
+                            "name": "jev_v2_step_and_execute",
+                            "description": "Evalúa y ejecuta físicamente una acción autorizada con checkpoints automáticos e ingestión de evidencia.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action": {"type": "object"},
+                                    "goal": {"type": ["string", "object"]},
+                                    "auto_checkpoint": {"type": "boolean"},
+                                },
+                                "required": ["action"],
+                            },
+                        },
+                        {
+                            "name": "jev_v2_rollback",
+                            "description": "Restaura el estado al último checkpoint seguro (o especificado) e invalida la herramienta reincidente.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "checkpoint_id": {"type": "string"},
+                                    "culprit_tool": {"type": "string"},
+                                    "reason": {"type": "string"},
+                                },
+                            },
+                        },
+                        {
+                            "name": "jev_v2_get_session_state",
+                            "description": "Obtiene el estado serializado y el hash SHA-256 canónico de la sesión actual.",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {},
+                            },
+                        },
                     ]
                 }
                 out = {"jsonrpc": "2.0", "id": req_id, "result": res}
@@ -253,6 +427,36 @@ class MCPBridge:
                     out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
                 elif tool_name == "jev_diagnose_trace":
                     result = self.diagnose_trace(arguments.get("trace_data", {}))
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_start_session":
+                    result = self.v2_start_session(
+                        goal=arguments.get("goal"),
+                        session_id=arguments.get("session_id"),
+                    )
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_evaluate_action":
+                    result = self.v2_evaluate_action(
+                        action=arguments.get("action", {}),
+                        goal=arguments.get("goal"),
+                        session_id=arguments.get("session_id"),
+                    )
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_step_and_execute":
+                    result = self.v2_step_and_execute(
+                        action=arguments.get("action", {}),
+                        goal=arguments.get("goal"),
+                        auto_checkpoint=arguments.get("auto_checkpoint", True),
+                    )
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_rollback":
+                    result = self.v2_rollback(
+                        checkpoint_id=arguments.get("checkpoint_id"),
+                        culprit_tool=arguments.get("culprit_tool"),
+                        reason=arguments.get("reason", "Rollback solicitado via MCP"),
+                    )
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_get_session_state":
+                    result = self.v2_get_session_state()
                     out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
                 else:
                     out = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}
