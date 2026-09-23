@@ -254,6 +254,97 @@ def simulate_trace_execution(file_path: str, config: Optional[JEVConfig] = None)
                 break
 
 
+def run_benchmark_cli(ablation: bool = False, compare_v1: bool = False, output_file: Optional[str] = None) -> None:
+    """Ejecuta y formatea en consola el benchmark formal de supervisión v0.2."""
+    from jev_navigator.evaluation import BenchmarkRunner, ScenarioCatalog
+
+    runner = BenchmarkRunner()
+    scenarios = ScenarioCatalog.get_extended_scenarios()
+
+    console.print("\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator v0.2[/]...\n")
+
+    if compare_v1:
+        comp = runner.compare_v01_vs_v02(scenarios)
+        table = Table(title="🛡️ [bold white]Comparativa de Seguridad y Calidad: v0.1 vs v0.2[/]", border_style="cyan")
+        table.add_column("Métrica", style="bold yellow")
+        table.add_column("v0.1 (Heurístico / Fallback Permisivo)", style="red")
+        table.add_column("v0.2 (Arquitectura Desacoplada / Fail-Safe)", style="green")
+
+        v1_data = comp["v0.1"]
+        v2_data = comp["v0.2"]
+        for k in v1_data:
+            table.add_row(k, str(v1_data[k]), str(v2_data[k]))
+
+        console.print(table)
+        console.print(f"\n[bold green]Resultado clave:[/] Reducción de falso permitido: [bold]{comp['false_allow_reduction']}[/]")
+        if comp["critical_safety_gap_closed"]:
+            console.print("[bold green]✅ Brecha de seguridad crítica cerrada:[/] 0 acciones destructivas indebidamente autorizadas.")
+        return
+
+    if ablation:
+        ablations = runner.run_ablation_study(scenarios)
+        table = Table(title="🧪 [bold white]Estudio Formal de Ablaciones (5 Capas Arquitectónicas)[/]", border_style="magenta")
+        table.add_column("Configuración", style="bold cyan")
+        table.add_column("Accuracy", justify="center")
+        table.add_column("F1-Score", justify="center")
+        table.add_column("False Allow Rate (Crítico)", justify="center")
+        table.add_column("Destructive False Allows", justify="center")
+        table.add_column("Latencia Media", justify="center")
+
+        for name, m in ablations.items():
+            color = "green" if m.destructive_false_allow_count == 0 else "red"
+            table.add_row(
+                name,
+                f"{m.accuracy * 100:.1f}%",
+                f"{m.f1_score:.3f}",
+                f"[{color}]{m.false_allow_rate * 100:.1f}%[/]",
+                f"[{color}]{m.destructive_false_allow_count}[/]",
+                f"{m.latency_mean_ms:.2f} ms",
+            )
+        console.print(table)
+        return
+
+    # Ejecución estándar de benchmark
+    report = runner.run_benchmark(scenarios=scenarios)
+
+    table = Table(title=f"📋 [bold white]Resultados de Escenarios: {report.suite_name}[/]", border_style="cyan")
+    table.add_column("ID Escenario", style="bold white")
+    table.add_column("Categoría", style="cyan")
+    table.add_column("Esperado", justify="center")
+    table.add_column("Emitido", justify="center")
+    table.add_column("Estado", justify="center")
+    table.add_column("Latencia", justify="right")
+
+    for r in report.results:
+        status_sym = "[bold green]✅ PASS[/]" if r.is_match else "[bold red]❌ FAIL[/]"
+        table.add_row(
+            r.scenario_id,
+            r.category,
+            f"[yellow]{r.expected_status.value.upper()}[/]",
+            f"[bold {('green' if r.is_match else 'red')}]{r.actual_status.value.upper()}[/]",
+            status_sym,
+            f"{r.latency_ms:.2f} ms",
+        )
+
+    console.print(table)
+
+    summary_panel = Panel(
+        f"[bold white]Total Escenarios:[/] {report.metrics.total_scenarios}\n"
+        f"[bold white]Exactitud:[/] [bold green]{report.metrics.accuracy * 100:.1f}%[/]\n"
+        f"[bold white]F1-Score:[/] [bold green]{report.metrics.f1_score:.3f}[/]\n"
+        f"[bold white]False Allow Rate (Métrica Crítica):[/] [bold green]{report.metrics.false_allow_rate * 100:.1f}%[/]\n"
+        f"[bold white]Acciones Destructivas Falsamente Permitidas:[/] [bold green]{report.metrics.destructive_false_allow_count}[/]\n"
+        f"[bold white]Latencia p50 / p95:[/] {report.metrics.latency_p50_ms:.2f} ms / {report.metrics.latency_p95_ms:.2f} ms",
+        title="📊 [bold green]Métricas Consolidadas[/]",
+        border_style="green",
+    )
+    console.print(summary_panel)
+
+    if output_file:
+        Path(output_file).write_text(json.dumps(report.model_dump(), indent=2), encoding="utf-8")
+        console.print(f"[bold green]Reporte exportado exitosamente a:[/] {output_file}")
+
+
 def main() -> None:
     """Punto de entrada principal para CLI de JEV-Reasoning-Navigator."""
     parser = argparse.ArgumentParser(
@@ -283,6 +374,12 @@ def main() -> None:
     dash_parser.add_argument("--max-steps", type=int, default=25, help="Número máximo de turnos permitidos")
     dash_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir inmediatamente sin modo interactivo continuo")
 
+    # Subcomando benchmark
+    bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones v0.2")
+    bench_parser.add_argument("--ablation", action="store_true", help="Ejecutar el estudio formal de ablaciones de las 5 capas")
+    bench_parser.add_argument("--compare-v1", action="store_true", help="Comparar métricas y seguridad de v0.1 vs v0.2")
+    bench_parser.add_argument("--output", type=str, default=None, help="Ruta para exportar el reporte en JSON")
+
     args = parser.parse_args()
 
     cfg = default_config.model_copy()
@@ -311,6 +408,12 @@ def main() -> None:
                 task=getattr(args, "task", None),
                 once=getattr(args, "once", False),
             )
+    elif args.command == "benchmark":
+        run_benchmark_cli(
+            ablation=getattr(args, "ablation", False),
+            compare_v1=getattr(args, "compare_v1", False),
+            output_file=getattr(args, "output", None),
+        )
     else:
         parser.print_help()
 

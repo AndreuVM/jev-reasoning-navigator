@@ -5,10 +5,12 @@ está genuinamente respaldada por evidencias empíricas observables frente a Goa
 evitando el antipatrón de finalización prematura sin pruebas de éxito.
 """
 
-from typing import List, Optional, Set
+from typing import Any, List, Optional, Set, TYPE_CHECKING
 from pydantic import BaseModel, ConfigDict, Field
 from jev_navigator.domain.models import ActionCandidate, Goal
-from jev_navigator.runtime.state import SessionState
+
+if TYPE_CHECKING:
+    from jev_navigator.runtime.state import SessionState
 
 
 class CompletionAssessment(BaseModel):
@@ -55,7 +57,7 @@ class CompletionVerifier:
     def verify(
         self,
         goal: Goal,
-        state: SessionState,
+        state: Any,
         action: ActionCandidate,
     ) -> CompletionAssessment:
         """Evalúa si la acción de finalización está justificada por la evidencia en el estado."""

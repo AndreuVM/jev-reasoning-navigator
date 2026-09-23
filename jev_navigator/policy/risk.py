@@ -31,6 +31,10 @@ class ToolRegistry:
         """Registra o actualiza la especificación de una herramienta."""
         self._tools[spec.name] = spec
 
+    def register(self, spec: ToolSpec) -> None:
+        """Alias conveniente para register_tool."""
+        self.register_tool(spec)
+
     def get_tool(self, name: str) -> Optional[ToolSpec]:
         """Obtiene la especificación de una herramienta si está registrada."""
         return self._tools.get(name)

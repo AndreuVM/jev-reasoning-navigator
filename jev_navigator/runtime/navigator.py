@@ -113,7 +113,10 @@ class Navigator:
                 failure_reason="No assessment returned",
             )
 
-            # 3. Decisión operacional de política
+            # 3. Evaluación contextual de riesgo operacional
+            risk_assessment = self.risk_engine.assess_action_risk(action)
+
+            # 4. Decisión operacional de política
             decision, receipt = self.policy_engine.evaluate_action(
                 action=action,
                 state=state.to_snapshot(),
@@ -121,6 +124,7 @@ class Navigator:
                 available_evidence=state.evidence,
                 forbidden_tools=state.forbidden_tools,
                 completion_assessment=completion_assessment,
+                risk_assessment=risk_assessment,
                 session_id=state.session_id,
             )
 
@@ -150,6 +154,8 @@ class Navigator:
                 failure_reason="No assessment returned",
             )
 
+        risk_assessment = self.risk_engine.assess_action_risk(action)
+
         decision, receipt = self.policy_engine.evaluate_action(
             action=action,
             state=state.to_snapshot(),
@@ -157,6 +163,7 @@ class Navigator:
             available_evidence=state.evidence,
             forbidden_tools=state.forbidden_tools,
             completion_assessment=completion_assessment,
+            risk_assessment=risk_assessment,
             session_id=state.session_id,
         )
         self.audit_receipts.append(receipt)

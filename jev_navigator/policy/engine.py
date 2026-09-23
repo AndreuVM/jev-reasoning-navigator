@@ -46,6 +46,7 @@ class PolicyEngine:
         available_evidence: Optional[List[Evidence]] = None,
         forbidden_tools: Optional[Set[str]] = None,
         completion_assessment: Optional[Any] = None,
+        risk_assessment: Optional[RiskAssessment] = None,
         session_id: str = "default_session",
     ) -> Tuple[PolicyDecision, DecisionReceipt]:
         """Evalúa una acción candidata emitiendo una decisión formal y su recibo auditable."""
@@ -55,7 +56,7 @@ class PolicyEngine:
         evidence_claims = {ev.claim.lower().strip() for ev in available_evidence}
 
         tool_name = action.tool_call.tool_name if action.tool_call else None
-        risk: RiskAssessment = self.registry.assess_risk(tool_name)
+        risk: RiskAssessment = risk_assessment or self.registry.assess_risk(tool_name)
         spec = self.registry.get_tool(tool_name) if tool_name else None
         is_read_only = bool(spec.read_only) if spec else True
 

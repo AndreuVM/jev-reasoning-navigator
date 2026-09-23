@@ -92,6 +92,17 @@ class RiskEngine:
                 current_level = RiskLevel.LOW
                 reasons.append("Comando de inspección identificado como seguro.")
 
+            # C. Detección de comandos con efectos externos o despliegues que exigen confirmación
+            external_side_effect_keywords = [
+                "kubectl", "docker push", "git push", "terraform", "ansible",
+                "aws ", "gcloud ", "curl -x post", "curl -x delete", "curl -x put",
+            ]
+            if any(kw in cmd_lower for kw in external_side_effect_keywords):
+                if current_level != RiskLevel.CRITICAL:
+                    current_level = RiskLevel.HIGH
+                requires_conf = True
+                reasons.append(f"Comando con efecto externo o despliegue que requiere confirmación: '{cmd}'")
+
         # 3. Análisis contextual para operaciones de archivo (edit, delete, read)
         path = str(args.get("path") or args.get("file") or "").strip().lower()
         if path:
