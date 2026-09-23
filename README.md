@@ -1,9 +1,9 @@
-# JEV Reasoning Navigator v0.2.0
+# JEV Reasoning Navigator v0.2.1
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-113%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.2.0-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-122%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.2.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
 [![TypeSafe AI](https://img.shields.io/badge/engine-TypeSafe%20System%20One-purple.svg)]()
 
@@ -284,14 +284,39 @@ if decision.status == "replan":
 
 ---
 
-## 9. Verificación de la Suite de Pruebas
-
-Toda la arquitectura v0.2 y la compatibilidad con v0.1 están respaldadas por **113 pruebas unitarias y de integración automatizadas**:
-
+## 9. Verificación de la Suite de Pruebas e Invariantes
+ 
+Toda la arquitectura v0.2.1, los contratos formales y las propiedades de seguridad están respaldadas por **122 pruebas automatizadas al 100%**:
+ 
 ```bash
-uv run pytest -v
-# ============================ 113 passed in 36.28s =============================
+pytest -q
+# ........................................................................ [ 59%]
+# ..................................................                       [100%]
+# 122 passed in 38.01s
 ```
+ 
+---
+ 
+## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.2.1)
+ 
+- **Resiliencia y Circuit Breaker (`CircuitBreaker`)**:
+  Control de estados `CLOSED`, `OPEN` y `HALF_OPEN` con reintentos con backoff exponencial y jitter aleatorio, respetando cabeceras `Retry-After`.
+- **Sanitización de Límites de Confianza (`DataSanitizer`)**:
+  Enmascaramiento de credenciales, API keys, tokens JWT, claves privadas SSH/RSA, emails e IPs privadas, con envoltura de seguridad `<untrusted_content>` y truncamiento de payloads.
+- **Ontología y Afirmaciones de Evidencia (`Claim`)**:
+  Registro explícito de aserciones (`register_claim`) en `EvidenceEngine` para auditoría trazable de precondiciones y deducciones empíricas.
+- **Telemetría y Bus de Eventos Estructurado (`EventBus`)**:
+  Publicación sincrónica y persistencia JSONL de eventos tipados: `DecisionEvent`, `ObservationEvent`, `ToolExecutionEvent` e `InterventionEvent`.
+- **Modo Sombra (`Shadow Mode`)**:
+  Permite ejecutar el runtime en modo observador pasivo (`shadow_mode=True`), registrando discrepancias y telemetría sin bloquear físicamente las acciones del agente.
+- **Modelo de Retorno Económico ($\text{NavigatorValue}$)**:
+  $$\text{NavigatorValue} = \text{AvoidedFailureCost} - \text{NavigatorCost} - \text{AddedLatencyCost} - \text{FalseRejectPenalty}$$
+  Evaluado automáticamente en cada ejecución del benchmark.
+- **Benchmark Masivo Procedural (1.000+ Escenarios)**:
+  Generación determinista y reproducible de 1.000 o más escenarios normativos cruzando 12 categorías operativas vía CLI:
+  ```bash
+  python -m jev_navigator.cli benchmark --count 1000
+  ```
 
 ---
 

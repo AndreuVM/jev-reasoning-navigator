@@ -11,6 +11,11 @@ import time
 from typing import Any, Dict, List, Optional
 from jev_navigator.domain.models import ActionCandidate, ProviderAssessment
 from jev_navigator.providers.base import BaseReasoningProvider
+from jev_navigator.providers.resilience import (
+    CircuitBreaker,
+    calculate_jittered_backoff,
+    parse_retry_after,
+)
 
 logger = logging.getLogger("jev_navigator.providers.typesafe")
 
@@ -24,11 +29,13 @@ class TypeSafeAdapter(BaseReasoningProvider):
         model_name: str = "jev-v1",
         max_retries: int = 2,
         timeout: float = 10.0,
+        circuit_breaker: Optional[CircuitBreaker] = None,
     ):
         self.api_key = api_key or os.getenv("TYPESAFE_API_KEY")
         self.model_name = model_name
         self.max_retries = max_retries
         self.timeout = timeout
+        self.circuit_breaker = circuit_breaker or CircuitBreaker()
         self._client = None
 
         if self.api_key:
@@ -56,7 +63,7 @@ class TypeSafeAdapter(BaseReasoningProvider):
         if not actions:
             return []
 
-        # 1. Verificación de disponibilidad de credenciales
+        # 1. Verificación de disponibilidad de credenciales y CircuitBreaker
         if not self.is_available():
             return [
                 ProviderAssessment(
@@ -66,6 +73,19 @@ class TypeSafeAdapter(BaseReasoningProvider):
                     confidence=0.0,
                     failure_reason="Clave de API de TypeSafe no configurada o cliente no inicializado",
                     reason_codes=["API_KEY_MISSING"],
+                )
+                for _ in actions
+            ]
+
+        if not self.circuit_breaker.allow_request():
+            return [
+                ProviderAssessment(
+                    provider="typesafe",
+                    model=self.model_name,
+                    available=False,
+                    confidence=0.0,
+                    failure_reason="Circuit breaker OPEN tras fallos reiterados del proveedor",
+                    reason_codes=["CIRCUIT_BREAKER_OPEN"],
                 )
                 for _ in actions
             ]
@@ -190,21 +210,25 @@ class TypeSafeAdapter(BaseReasoningProvider):
             ]
 
     def _invoke_with_retry(self, state: Dict[str, Any], questions: Dict[str, Any]) -> Any:
-        """Ejecuta system_one con reintentos para fallos transitorios."""
+        """Ejecuta system_one con reintentos para fallos transitorios y control de CircuitBreaker."""
         last_error = None
         for attempt in range(self.max_retries + 1):
             try:
-                return self._client.system_one(
+                res = self._client.system_one(
                     state=state,
                     questions=questions,
                     model=self.model_name,
                 )
+                self.circuit_breaker.record_success()
+                return res
             except Exception as e:
                 last_error = e
+                self.circuit_breaker.record_failure(e)
                 err_lower = str(e).lower()
-                is_transient = any(kw in err_lower for kw in ("timeout", "connection", "502", "503", "504", "reset"))
+                is_transient = any(kw in err_lower for kw in ("timeout", "connection", "502", "503", "504", "reset", "429", "rate"))
                 if attempt < self.max_retries and is_transient:
-                    backoff = 0.4 * (2 ** attempt)
+                    retry_after = parse_retry_after(err_lower)
+                    backoff = calculate_jittered_backoff(attempt=attempt, base_backoff=0.4, retry_after=retry_after)
                     time.sleep(backoff)
                 else:
                     break

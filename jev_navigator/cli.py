@@ -254,14 +254,23 @@ def simulate_trace_execution(file_path: str, config: Optional[JEVConfig] = None)
                 break
 
 
-def run_benchmark_cli(ablation: bool = False, compare_v1: bool = False, output_file: Optional[str] = None) -> None:
+def run_benchmark_cli(
+    ablation: bool = False,
+    compare_v1: bool = False,
+    count: Optional[int] = None,
+    output_file: Optional[str] = None,
+) -> None:
     """Ejecuta y formatea en consola el benchmark formal de supervisión v0.2."""
     from jev_navigator.evaluation import BenchmarkRunner, ScenarioCatalog
+    from jev_navigator.evaluation.metrics import compute_navigator_economic_value
 
     runner = BenchmarkRunner()
-    scenarios = ScenarioCatalog.get_extended_scenarios()
+    if count and count > 0:
+        scenarios = ScenarioCatalog.generate_large_scale_dataset(count=count)
+    else:
+        scenarios = ScenarioCatalog.get_extended_scenarios()
 
-    console.print("\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator v0.2[/]...\n")
+    console.print(f"\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator v0.2 ({len(scenarios)} escenarios)[/]...\n")
 
     if compare_v1:
         comp = runner.compare_v01_vs_v02(scenarios)
@@ -307,7 +316,12 @@ def run_benchmark_cli(ablation: bool = False, compare_v1: bool = False, output_f
     # Ejecución estándar de benchmark
     report = runner.run_benchmark(scenarios=scenarios)
 
-    table = Table(title=f"📋 [bold white]Resultados de Escenarios: {report.suite_name}[/]", border_style="cyan")
+    # Si hay demasiados escenarios (ej. 1000), mostrar solo los primeros 20 en la tabla detallada
+    display_results = report.results[:20] if len(report.results) > 20 else report.results
+    table = Table(
+        title=f"📋 [bold white]Resultados de Escenarios: {report.suite_name} (Mostrando {len(display_results)}/{len(report.results)})[/]",
+        border_style="cyan",
+    )
     table.add_column("ID Escenario", style="bold white")
     table.add_column("Categoría", style="cyan")
     table.add_column("Esperado", justify="center")
@@ -315,7 +329,7 @@ def run_benchmark_cli(ablation: bool = False, compare_v1: bool = False, output_f
     table.add_column("Estado", justify="center")
     table.add_column("Latencia", justify="right")
 
-    for r in report.results:
+    for r in display_results:
         status_sym = "[bold green]✅ PASS[/]" if r.is_match else "[bold red]❌ FAIL[/]"
         table.add_row(
             r.scenario_id,
@@ -328,14 +342,19 @@ def run_benchmark_cli(ablation: bool = False, compare_v1: bool = False, output_f
 
     console.print(table)
 
+    econ = compute_navigator_economic_value(report.metrics)
+
     summary_panel = Panel(
         f"[bold white]Total Escenarios:[/] {report.metrics.total_scenarios}\n"
         f"[bold white]Exactitud:[/] [bold green]{report.metrics.accuracy * 100:.1f}%[/]\n"
         f"[bold white]F1-Score:[/] [bold green]{report.metrics.f1_score:.3f}[/]\n"
         f"[bold white]False Allow Rate (Métrica Crítica):[/] [bold green]{report.metrics.false_allow_rate * 100:.1f}%[/]\n"
         f"[bold white]Acciones Destructivas Falsamente Permitidas:[/] [bold green]{report.metrics.destructive_false_allow_count}[/]\n"
-        f"[bold white]Latencia p50 / p95:[/] {report.metrics.latency_p50_ms:.2f} ms / {report.metrics.latency_p95_ms:.2f} ms",
-        title="📊 [bold green]Métricas Consolidadas[/]",
+        f"[bold white]Latencia p50 / p95:[/] {report.metrics.latency_p50_ms:.2f} ms / {report.metrics.latency_p95_ms:.2f} ms\n"
+        f"[bold yellow]─ Valor Económico Estimado (Sección 20) ─[/]\n"
+        f"[bold white]Valor Neto del Supervisor:[/] [bold green]${econ['net_navigator_value']:,.2f}[/]\n"
+        f"[bold white]Coste de Fallos Evitados:[/] [green]${econ['gross_avoided_cost']:,.2f}[/] | [dim]Coste Supervisor: ${econ['navigator_cost']:.4f} | Penalización Rechazos: ${econ['false_block_cost']:.2f}[/]",
+        title="📊 [bold green]Métricas Consolidadas de Gobernanza y Eficiencia[/]",
         border_style="green",
     )
     console.print(summary_panel)
@@ -378,6 +397,7 @@ def main() -> None:
     bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones v0.2")
     bench_parser.add_argument("--ablation", action="store_true", help="Ejecutar el estudio formal de ablaciones de las 5 capas")
     bench_parser.add_argument("--compare-v1", action="store_true", help="Comparar métricas y seguridad de v0.1 vs v0.2")
+    bench_parser.add_argument("--count", type=int, default=None, help="Número de escenarios sintéticos a evaluar (ej. 1000 para dataset masivo)")
     bench_parser.add_argument("--output", type=str, default=None, help="Ruta para exportar el reporte en JSON")
 
     args = parser.parse_args()
@@ -412,6 +432,7 @@ def main() -> None:
         run_benchmark_cli(
             ablation=getattr(args, "ablation", False),
             compare_v1=getattr(args, "compare_v1", False),
+            count=getattr(args, "count", None),
             output_file=getattr(args, "output", None),
         )
     else:

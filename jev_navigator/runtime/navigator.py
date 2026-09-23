@@ -6,6 +6,7 @@ con soporte de checkpoints automáticos, chunking tipado y rollback determinista
 """
 
 from datetime import datetime
+import hashlib
 from typing import Any, Dict, List, Optional, Set, Tuple
 from jev_navigator.domain.interfaces import ReasoningProvider
 from jev_navigator.domain.models import (
@@ -24,6 +25,13 @@ from jev_navigator.reasoning.risk import RiskEngine
 from jev_navigator.runtime.checkpoints import Checkpoint, CheckpointManager
 from jev_navigator.runtime.executor import SecureExecutor, ToolObservation
 from jev_navigator.runtime.state import SessionState
+from jev_navigator.runtime.telemetry import (
+    DecisionEvent,
+    ObservationEvent,
+    ToolExecutionEvent,
+    global_event_bus,
+    EventBus,
+)
 
 
 class Navigator:
@@ -38,6 +46,8 @@ class Navigator:
         risk_engine: Optional[RiskEngine] = None,
         checkpoint_manager: Optional[CheckpointManager] = None,
         completion_verifier: Optional[CompletionVerifier] = None,
+        event_bus: Optional[EventBus] = None,
+        shadow_mode: bool = False,
     ):
         self.provider = provider
         self.policy_engine = policy_engine or PolicyEngine()
@@ -46,6 +56,8 @@ class Navigator:
         self.risk_engine = risk_engine or RiskEngine()
         self.checkpoint_manager = checkpoint_manager or CheckpointManager()
         self.completion_verifier = completion_verifier or CompletionVerifier()
+        self.event_bus = event_bus or global_event_bus
+        self.shadow_mode = shadow_mode
 
         self.state: Optional[SessionState] = None
         self.audit_receipts: List[DecisionReceipt] = []
@@ -188,6 +200,25 @@ class Navigator:
             session_id=state.session_id,
         )
         self.audit_receipts.append(receipt)
+
+        # Emitir evento estructurado de decisión (Secciones 21 y 30)
+        self.event_bus.publish(
+            DecisionEvent(
+                session_id=state.session_id,
+                decision_id=receipt.decision_id,
+                action_id=action.id,
+                state_hash=receipt.state_hash,
+                action_hash=receipt.action_hash,
+                provider=assessment.provider if assessment else "unknown",
+                model=assessment.model if assessment else None,
+                decision=decision.status.value,
+                confidence=decision.confidence,
+                risk=risk_assessment.level.value if risk_assessment else "low",
+                latency_ms=receipt.latency_ms,
+                reason_codes=decision.reason_codes,
+                shadow_mode=self.shadow_mode,
+            )
+        )
         return decision, receipt
 
     def step(
@@ -205,11 +236,12 @@ class Navigator:
         decision, receipt = self.decide(action)
 
         # 2. Si la política DENEGÓ la ejecución (BLOCK, REPLAN, ABSTAIN)
-        if decision.status != DecisionStatus.ALLOW:
+        # En modo shadow, se observa y registra pero se permite continuar
+        if decision.status != DecisionStatus.ALLOW and not self.shadow_mode:
             state.add_step(action=action, decision=decision, observation=None)
             return decision, None
 
-        # 3. La acción está AUTORIZADA (ALLOW)
+        # 3. La acción está AUTORIZADA (ALLOW o Shadow Mode)
         tool_name = action.tool_call.tool_name if action.tool_call else None
         tool_args = action.tool_call.arguments if action.tool_call else {}
 
@@ -223,7 +255,30 @@ class Navigator:
                 )
 
         # 4. Ejecución física con el Executor garantizado
-        observation = self.executor.execute(action, state, decision)
+        exec_decision = PolicyDecision(status=DecisionStatus.ALLOW) if self.shadow_mode else decision
+        observation = self.executor.execute(action, state, exec_decision)
+
+        # Emitir eventos de ejecución y observación
+        self.event_bus.publish(
+            ToolExecutionEvent(
+                session_id=state.session_id,
+                action_id=action.id,
+                tool_name=tool_name or "unknown",
+                arguments_hash=receipt.action_hash,
+                success=observation.success,
+                execution_time_ms=observation.execution_time_ms,
+                is_error=observation.is_error,
+            )
+        )
+        self.event_bus.publish(
+            ObservationEvent(
+                session_id=state.session_id,
+                observation_id=f"obs_{len(state.steps)}",
+                tool_name=tool_name,
+                content_hash=hashlib.sha256(observation.output.encode("utf-8", errors="replace")).hexdigest(),
+                size_bytes=len(observation.output.encode("utf-8", errors="replace")),
+            )
+        )
 
         # Actualizar el recibo de decisión con la dimensión de ejecución completada (Cuadro 1)
         receipt_dict = receipt.model_dump()
@@ -237,7 +292,6 @@ class Navigator:
         # 5. Ingestión de evidencia y resolución de mutaciones
         if observation.success:
             if tool_name:
-                # Ingestar evidencias automáticas derivadas de la observación
                 new_evidences = self.evidence_engine.ingest_from_observation(
                     tool_name=tool_name,
                     tool_args=tool_args,

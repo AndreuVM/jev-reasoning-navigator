@@ -117,6 +117,9 @@ class ConvergenceAnomaly(str, Enum):
     N_HOP_CYCLE = "n_hop_cycle"
     ENTROPIC_STAGNATION = "entropic_stagnation"
     SEMANTIC_FIXATION = "semantic_fixation"
+    DEPENDENCY_CYCLE = "dependency_cycle"
+    GOAL_DRIFT = "goal_drift"
+    SCOPE_DRIFT = "scope_drift"
 
 
 class GroundingAnomaly(str, Enum):
@@ -125,6 +128,10 @@ class GroundingAnomaly(str, Enum):
     UNGROUNDED_PREMISE = "ungrounded_premise"
     HALLUCINATION = "hallucination"
     CONTRADICTED_EVIDENCE = "contradicted_evidence"
+    STALE_STATE = "stale_state"
+    CONTRADICTORY_OBSERVATION = "contradictory_observation"
+    UNVERIFIED_SUCCESS = "unverified_success"
+    PREMATURE_COMPLETION = "premature_completion"
 
 
 class InstrumentalRiskAnomaly(str, Enum):
@@ -134,6 +141,9 @@ class InstrumentalRiskAnomaly(str, Enum):
     UNAUTHORIZED_TOOL = "unauthorized_tool"
     UNCONFIRMED_ACTION = "unconfirmed_action"
     RESOURCE_EXHAUSTION = "resource_exhaustion"
+    INVALID_TOOL_ARGUMENT = "invalid_tool_argument"
+    PERMISSION_VIOLATION = "permission_violation"
+    EXCESSIVE_COST = "excessive_cost"
 
 
 class LoopType(str, Enum):

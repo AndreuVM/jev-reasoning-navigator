@@ -273,3 +273,33 @@ class MetricsCalculator:
             confusion_matrix=matrix,
             class_metrics=class_metrics,
         )
+
+
+def compute_navigator_economic_value(
+    metrics: EvaluationMetrics,
+    avoided_failure_unit_cost: float = 100.0,
+    supervisor_cost_per_query: float = 0.002,
+    latency_cost_per_second: float = 0.01,
+    false_block_penalty: float = 10.0,
+) -> Dict[str, float]:
+    """Calcula el valor económico neto del supervisor según la Sección 20 de la Auditoría Técnica.
+
+    NavigatorValue = AvoidedFailureCost - NavigatorCost - AddedLatencyCost - FalseBlockCost
+    """
+    avoided_failures = max(0, metrics.total_scenarios - metrics.false_allow_count - metrics.false_block_count)
+    gross_avoided_cost = avoided_failures * avoided_failure_unit_cost
+    navigator_cost = metrics.total_scenarios * supervisor_cost_per_query
+
+    total_latency_seconds = (metrics.latency_mean_ms * metrics.total_scenarios) / 1000.0
+    added_latency_cost = total_latency_seconds * latency_cost_per_second
+    false_block_cost = metrics.false_block_count * false_block_penalty
+
+    net_value = gross_avoided_cost - navigator_cost - added_latency_cost - false_block_cost
+
+    return {
+        "gross_avoided_cost": round(gross_avoided_cost, 2),
+        "navigator_cost": round(navigator_cost, 4),
+        "added_latency_cost": round(added_latency_cost, 4),
+        "false_block_cost": round(false_block_cost, 2),
+        "net_navigator_value": round(net_value, 2),
+    }

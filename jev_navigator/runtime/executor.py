@@ -14,6 +14,7 @@ from pydantic import BaseModel, ConfigDict
 from jev_navigator.domain.interfaces import Executor
 from jev_navigator.domain.models import ActionCandidate, DecisionStatus, PolicyDecision
 from jev_navigator.policy.risk import ToolRegistry
+from jev_navigator.policy.sanitizer import DataSanitizer
 from jev_navigator.runtime.state import SessionState
 
 
@@ -43,9 +44,11 @@ class SecureExecutor(Executor):
         self,
         registry: Optional[ToolRegistry] = None,
         dry_run: bool = False,
+        sanitizer: Optional[DataSanitizer] = None,
     ):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.dry_run = dry_run
+        self.sanitizer = sanitizer or DataSanitizer()
         self._custom_handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {}
 
     def register_handler(self, tool_name: str, handler: Callable[[Dict[str, Any]], str]) -> None:
@@ -129,11 +132,15 @@ class SecureExecutor(Executor):
 
         # 7. Controladores nativos por defecto
         start_t = time.perf_counter()
-        output, success, is_error = self._execute_builtin_tool(tool_name, tool_args)
+        raw_output, success, is_error = self._execute_builtin_tool(tool_name, tool_args)
         elapsed = (time.perf_counter() - start_t) * 1000.0
 
+        # Aplicar redacción de secretos y límite de payload configurado
+        redacted_output = self.sanitizer.redact_text(raw_output)
+        final_output = self.sanitizer.enforce_payload_limit(redacted_output)
+
         return ToolObservation(
-            output=output,
+            output=final_output,
             success=success,
             execution_time_ms=round(elapsed, 2),
             tool_name=tool_name,

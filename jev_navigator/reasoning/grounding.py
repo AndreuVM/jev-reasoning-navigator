@@ -10,7 +10,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 import uuid
 
 from jev_navigator.domain.interfaces import EvidenceProvider
-from jev_navigator.domain.models import ActionCandidate, Evidence
+from jev_navigator.domain.models import ActionCandidate, Claim, Evidence
 
 
 class EvidenceEngine(EvidenceProvider):
@@ -19,8 +19,43 @@ class EvidenceEngine(EvidenceProvider):
     def __init__(self):
         # Mapeo de claim_key normalizado -> Evidence
         self._evidence_pool: Dict[str, Evidence] = {}
+        # Mapeo de claim_id o statement -> Claim
+        self._claims_pool: Dict[str, Claim] = {}
         # Historial de evidencias invalidadas por mutaciones de estado
         self.invalidation_history: List[Dict[str, Any]] = []
+
+    def register_claim(
+        self,
+        statement: str,
+        evidence_ids: Optional[List[str]] = None,
+        confidence: float = 1.0,
+    ) -> Claim:
+        """Registra explícitamente un aserto o Claim respaldado por evidencias."""
+        clean_statement = statement.strip()
+        claim_id = f"cl_{uuid.uuid4().hex[:8]}"
+        claim = Claim(
+            id=claim_id,
+            statement=clean_statement,
+            confidence=confidence,
+            evidence_ids=evidence_ids or [],
+        )
+        self._claims_pool[claim_id] = claim
+        self._claims_pool[clean_statement.lower()] = claim
+        return claim
+
+    def get_claim(self, identifier_or_statement: str) -> Optional[Claim]:
+        """Obtiene un Claim por su ID o por su texto normalizado."""
+        return self._claims_pool.get(identifier_or_statement.strip().lower())
+
+    def get_all_claims(self) -> List[Claim]:
+        """Devuelve todos los asertos únicos registrados."""
+        seen = set()
+        unique = []
+        for c in self._claims_pool.values():
+            if c.id not in seen:
+                seen.add(c.id)
+                unique.append(c)
+        return unique
 
     def ingest(
         self,
@@ -30,7 +65,7 @@ class EvidenceEngine(EvidenceProvider):
         confidence: float = 1.0,
         content: str = "",
     ) -> Evidence:
-        """Registra una nueva pieza de evidencia empírica validada."""
+        """Registra una nueva pieza de evidencia empírica validada y su aserto correspondiente."""
         normalized_claim = claim.strip()
         key = normalized_claim.lower()
 
@@ -40,13 +75,21 @@ class EvidenceEngine(EvidenceProvider):
             else hashlib.sha256(normalized_claim.encode("utf-8")).hexdigest()
         )
 
+        ev_id = f"ev_{uuid.uuid4().hex[:8]}"
+        assoc_claim = self.register_claim(
+            statement=normalized_claim,
+            evidence_ids=[ev_id],
+            confidence=confidence,
+        )
+
         evidence = Evidence(
-            id=f"ev_{uuid.uuid4().hex[:8]}",
+            id=ev_id,
             source_step_id=source_step_id,
             source_type=source_type,  # type: ignore
             claim=normalized_claim,
             content_hash=content_hash,
             confidence=confidence,
+            claims=[assoc_claim],
         )
         self._evidence_pool[key] = evidence
         return evidence
