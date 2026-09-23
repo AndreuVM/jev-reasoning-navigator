@@ -1,0 +1,110 @@
+"""Pruebas unitarias para SecureExecutor y PolicyViolation en v0.2."""
+
+import pytest
+from jev_navigator.domain import (
+    ActionCandidate,
+    DecisionStatus,
+    Goal,
+    PolicyDecision,
+    ToolCall,
+)
+from jev_navigator.runtime import PolicyViolation, SecureExecutor, SessionState
+
+
+def test_executor_blocks_unauthorized_decision_with_policy_violation():
+    """Verifica que el ejecutor lance PolicyViolation físicamente si la decisión no es ALLOW."""
+    executor = SecureExecutor()
+    state = SessionState(session_id="s1", goal=Goal(objective="test"))
+
+    action = ActionCandidate(
+        id="act_1",
+        description="Borrar base de datos",
+        tool_call=ToolCall(tool_name="delete_file", arguments={"path": "/db"}),
+    )
+
+    denied_statuses = [DecisionStatus.BLOCK, DecisionStatus.REPLAN, DecisionStatus.ABSTAIN]
+    for status in denied_statuses:
+        decision = PolicyDecision(status=status, reason_codes=["TEST_DENIAL"])
+        with pytest.raises(PolicyViolation) as exc_info:
+            executor.execute(action, state=state, decision=decision)
+
+        assert f"el estatus de la política es {status}" in str(exc_info.value)
+        assert exc_info.value.action == action
+        assert exc_info.value.decision == decision
+
+
+def test_executor_blocks_forbidden_tool_in_state():
+    """Verifica que si la herramienta está prohibida en el estado, se aborte con PolicyViolation."""
+    executor = SecureExecutor()
+    state = SessionState(session_id="s2", goal=Goal(objective="test"))
+    state.forbid_tool("run_command")
+
+    action = ActionCandidate(
+        id="act_2",
+        description="Ejecutar comando prohibido",
+        tool_call=ToolCall(tool_name="run_command", arguments={"command": "dir"}),
+    )
+    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+
+    with pytest.raises(PolicyViolation) as exc_info:
+        executor.execute(action, state=state, decision=decision)
+
+    assert "explícitamente PROHIBIDA" in str(exc_info.value)
+
+
+def test_executor_blocks_unknown_tool_not_in_registry():
+    """Verifica que herramientas no registradas sean bloqueadas físicamente."""
+    executor = SecureExecutor()
+    state = SessionState(session_id="s3", goal=Goal(objective="test"))
+
+    action = ActionCandidate(
+        id="act_3",
+        description="Herramienta inventada",
+        tool_call=ToolCall(tool_name="unregistered_malicious_plugin", arguments={}),
+    )
+    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+
+    with pytest.raises(PolicyViolation) as exc_info:
+        executor.execute(action, state=state, decision=decision)
+
+    assert "herramienta desconocida" in str(exc_info.value)
+
+
+def test_executor_executes_authorized_action_dry_run():
+    """Verifica la ejecución en modo dry_run sin efectos secundarios."""
+    executor = SecureExecutor(dry_run=True)
+    state = SessionState(session_id="s4", goal=Goal(objective="test"))
+
+    action = ActionCandidate(
+        id="act_dry",
+        description="Lectura simulada",
+        tool_call=ToolCall(tool_name="read_file", arguments={"path": "dummy.txt"}),
+    )
+    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+
+    obs = executor.execute(action, state=state, decision=decision)
+    assert obs.success is True
+    assert "[DRY-RUN]" in obs.output
+    assert obs.tool_name == "read_file"
+
+
+def test_executor_custom_handler_injection():
+    """Verifica que se puedan inyectar controladores mock/personalizados para herramientas."""
+    executor = SecureExecutor()
+    state = SessionState(session_id="s5", goal=Goal(objective="test"))
+
+    def mock_fetch(args):
+        return f"Mocked URL content for {args.get('url')}"
+
+    executor.register_handler("fetch_url", mock_fetch)
+
+    action = ActionCandidate(
+        id="act_custom",
+        description="Obtener URL",
+        tool_call=ToolCall(tool_name="fetch_url", arguments={"url": "https://api.test"}),
+    )
+    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+
+    obs = executor.execute(action, state=state, decision=decision)
+    assert obs.success is True
+    assert "Mocked URL content" in obs.output
