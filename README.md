@@ -116,10 +116,77 @@ uv run jev-nav simulate data/loop_traces/tool_loop.json
 ```
 
 ### Modo CLI: Agente Autónomo Interactivo (`jev-live`)
-Ejecuta un agente interactivo que solicita el objetivo al usuario y resuelve tareas paso a paso, supervisado en cada bloque por TypeSafe AI para evitar alucinaciones:
+Ejecuta un agente interactivo que resuelve tareas paso a paso, supervisado en cada bloque por TypeSafe AI para evitar bucles y alucinaciones. Admite tareas sucesivas continuas heredando memoria y contexto de sesión:
 
 ```bash
+uv run jev-live [tarea] [opciones]
+# o alternativamente:
+python -m jev_navigator.live_agent [tarea] [opciones]
+```
+
+**Parámetros disponibles:**
+
+| Parámetro | Alias | Tipo | Valor por defecto | Descripción |
+| :--- | :--- | :--- | :--- | :--- |
+| `task` / `--goal` | `-g` | `string` | `None` (solicita en consola) | Objetivo o tarea inicial a resolver. |
+| `--model` | | `string` | `gemini-3.8-flash` | Modelo generador de Gemini a utilizar (ej. `gemini-2.5-flash`, `gemini-1.5-pro`). |
+| `--steps` | | `int` | `15` | Máximo número de pasos autorizados por tarea (`0` para modo ilimitado). |
+| `--chunk-size` | | `int` | `3` | Tamaño de bloque para evaluación agrupada (*chunking* cognitivo). |
+| `--once` | | `flag` | `False` | Ejecuta la tarea indicada y finaliza inmediatamente sin mantener la sesión abierta. |
+| `--typesafe` | | `flag` | `False` | Habilita la evaluación remota mediante la API de TypeSafe AI en la nube. |
+| `--gemini-key` | | `string` | `None` (lee de `.env`) | Clave API de Gemini para la ejecución. |
+
+**Ejemplos de uso:**
+```bash
+# Modo interactivo estándar (solicita objetivos de forma iterativa)
 uv run jev-live
+
+# Ejecutar una tarea específica directamente con un modelo determinado
+uv run jev-live --goal "Inspeccionar dependencias en pyproject.toml" --model gemini-2.5-flash
+
+# Ejecutar una sola tarea con límite de 20 pasos y salir al terminar
+uv run jev-live "Analizar arquitectura del proyecto" --once --steps 20
+```
+
+**Comandos durante la sesión interactiva:**
+* `reset`: Limpia la memoria episódica acumulada para iniciar una nueva tarea limpia desde cero.
+* `salir` o `exit`: Finaliza la sesión del agente.
+
+---
+
+### Modo Dashboard TUI en Vivo (`jev-dash` / `jev-nav dashboard`)
+Visualizador interactivo terminal enriquecido con **Rich** que divide la pantalla en tiempo real:
+* **Panel Izquierdo:** Razonamiento interno (*thought*), herramienta invocada y observación empírica obtenida del entorno.
+* **Panel Central:** Veredicto cognitivo de TypeSafe AI, indicador de riesgo *Noul*, estado de fundamentación y directivas activas.
+* **Panel Derecho:** Árbol cronológico DAG con badges de avance y ramas podadas.
+* **Barra Inferior:** Telemetría en tiempo real (turnos, llamadas LLM, llamadas ahorradas por JEV y alucinaciones bloqueadas).
+
+```bash
+uv run jev-dash --live [opciones]
+# o mediante jev-nav:
+uv run jev-nav dashboard --live [opciones]
+```
+
+**Parámetros disponibles:**
+
+| Parámetro | Tipo | Valor por defecto | Descripción |
+| :--- | :--- | :--- | :--- |
+| `--live` | `flag` | `False` | Activa el modo en vivo conectando el agente LLM real (sin `--live` ejecuta modo demo guiada). |
+| `--task` | `string` | `None` (solicita en consola) | Objetivo o tarea a resolver en vivo. |
+| `--model` | `string` | `gemini-3.6-flash` | Modelo generador de Gemini para la sesión visual. |
+| `--max-steps` | `int` | `25` | Límite máximo de turnos permitidos por tarea. |
+| `--once` | `flag` | `False` | Ejecuta una única tarea visualmente y finaliza sin solicitar una nueva. |
+
+**Ejemplos de uso:**
+```bash
+# Lanzar el dashboard en modo demostración guiada
+uv run jev-dash
+
+# Lanzar el dashboard en vivo con agente autónomo
+uv run jev-dash --live
+
+# Lanzar tarea en vivo con modelo específico y límite de 30 turnos
+uv run jev-dash --live --task "Revisar errores en tests y resumir hallazgos" --model gemini-2.5-flash --max-steps 30
 ```
 
 ---
