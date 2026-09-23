@@ -847,7 +847,7 @@ def _execute_single_live_task(
                                     errors="replace",
                                 )
                                 output = (proc.stdout or proc.stderr or "Comando ejecutado sin salida").strip()
-                                obs = output[:1500]
+                                obs = output[:10000]
                         except Exception as e:
                             obs = f"Error ejecutando '{cmd}': {e}"
                     else:
@@ -857,7 +857,10 @@ def _execute_single_live_task(
                     if p and os.path.exists(p):
                         try:
                             with open(p, "r", encoding="utf-8", errors="replace") as f:
-                                obs = f.read(1500)
+                                file_content = f.read(50000)
+                                if len(file_content) >= 50000:
+                                    file_content += "\n\n[... Archivo muy extenso: truncado a 50.000 caracteres por seguridad de contexto ...]"
+                                obs = f"Contenido de '{p}':\n{file_content}"
                         except Exception as e:
                             obs = f"Error leyendo {p}: {e}"
                     else:
@@ -869,7 +872,7 @@ def _execute_single_live_task(
                 dash.middleware.record_observation(obs)
                 conversation_history.append({
                     "role": "user",
-                    "content": f"OBSERVACIÓN REAL ({tool_name}):\n{obs[:500]}",
+                    "content": f"OBSERVACIÓN REAL ({tool_name}):\n{obs}",
                 })
 
                 dash.update_agent_step(

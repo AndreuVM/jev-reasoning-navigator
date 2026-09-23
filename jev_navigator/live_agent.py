@@ -512,9 +512,10 @@ def run_live_gemini_agent(
                 if path and os.path.exists(path):
                     try:
                         with open(path, "rb") as f:
-                            raw_bytes = f.read(15000)
+                            raw_bytes = f.read(60000)
                         content = decode_process_bytes(raw_bytes)
-                        content = prune_observation_output(content, max_chars=2500)
+                        if len(content) >= 60000:
+                            content += "\n\n[... Archivo muy extenso: truncado a 60.000 caracteres por seguridad de contexto ...]"
                         observation = f"Contenido de '{path}':\n{content}"
                     except Exception as e:
                         observation = f"Error leyendo '{path}': {e}"
