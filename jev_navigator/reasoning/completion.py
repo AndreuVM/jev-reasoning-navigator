@@ -94,12 +94,37 @@ class CompletionVerifier:
 
             # Comprobar si el criterio coincide con algún claim directo o si sus palabras clave están en el corpus
             direct_match = any(criterion_lower in claim or claim in criterion_lower for claim in evidence_claims)
+            
+            # Verificación estructurada para criterios que exigen pruebas o compilación
+            is_test_or_verification_criterion = any(
+                w in criterion_lower for w in ("test", "tests", "pytest", "compil", "valid", "verific")
+            )
+            has_failed_execution = False
+            has_successful_execution = False
+
+            for s in state.steps:
+                obs_text = (s.observation or "").lower()
+                cmd_text = ""
+                if s.action.tool_call and s.action.tool_call.arguments:
+                    cmd_text = str(s.action.tool_call.arguments.get("cmd") or s.action.tool_call.arguments.get("command") or "").lower()
+                
+                # Si este paso ejecutó tests o validación
+                if "pytest" in cmd_text or "test" in cmd_text or "check" in cmd_text:
+                    if any(fail_word in obs_text for fail_word in ("failed", "failure", "error", "exit code 1", "exit_code=1")):
+                        has_failed_execution = True
+                    if any(pass_word in obs_text for pass_word in ("passed", "ok", "success", "100%", "exit code 0", "exit_code=0")):
+                        has_successful_execution = True
+
             keyword_match = False
-            if criterion_keywords:
+            if criterion_keywords and not has_failed_execution:
                 matched_keywords = {kw for kw in criterion_keywords if kw in corpus}
-                # Si coincide al menos el 50% de las palabras clave del criterio
-                if len(matched_keywords) / len(criterion_keywords) >= 0.5:
+                if len(matched_keywords) / len(criterion_keywords) >= 0.6:
                     keyword_match = True
+
+            # Si es un criterio de tests y fallaron ejecuciones recientes de test, no se satisface
+            if is_test_or_verification_criterion and has_failed_execution and not has_successful_execution:
+                direct_match = False
+                keyword_match = False
 
             if direct_match or keyword_match:
                 satisfied.append(criterion_clean)

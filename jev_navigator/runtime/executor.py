@@ -1,29 +1,40 @@
-"""Ejecutor físico con enforcement formal (SecureExecutor) para v0.2.
+"""Ejecutor físico con enforcement formal (SecureExecutor) para v0.2.1.
 
-Aplica el principio de seguridad:
-Prompt instruction != Execution enforcement
-Ninguna herramienta puede ejecutarse físicamente si la política no la autoriza expresamente.
+Aplica los principios fundamentales:
+1. Prompt instruction != Execution enforcement.
+2. Ninguna herramienta puede ejecutarse físicamente sin presentar un capability / DecisionReceipt
+   válido, firmado/emitido por PolicyEngine, no manipulado y no consumido (Replay Prevention).
+3. Toda ejecución física de herramientas se aísla mediante SandboxAdapter, protegiendo al host
+   contra inyección de subshells, acceso no autorizado a archivos fuera del workspace y fugas de secretos.
 """
 
-import os
-import subprocess
-import sys
 import time
-from typing import Any, Callable, Dict, Optional
+from typing import Any, Callable, Dict, Optional, Set
 from pydantic import BaseModel, ConfigDict
+from jev_navigator.domain.action import compute_action_hash
+from jev_navigator.domain.decision import compute_state_hash, DecisionReceipt, DecisionStatus, PolicyDecision
 from jev_navigator.domain.interfaces import Executor
-from jev_navigator.domain.models import ActionCandidate, DecisionStatus, PolicyDecision
+from jev_navigator.domain.models import ActionCandidate
 from jev_navigator.policy.risk import ToolRegistry
 from jev_navigator.policy.sanitizer import DataSanitizer
+from jev_navigator.runtime.sandbox import DryRunSandbox, LocalProcessSandbox, SandboxAdapter
 from jev_navigator.runtime.state import SessionState
 
 
 class PolicyViolation(Exception):
-    """Excepción lanzada cuando una herramienta intenta ejecutarse en contra de la política."""
-    def __init__(self, message: str, action: ActionCandidate, decision: Optional[PolicyDecision] = None):
+    """Excepción lanzada cuando una herramienta intenta ejecutarse en contra de la política o sin autorización."""
+
+    def __init__(
+        self,
+        message: str,
+        action: ActionCandidate,
+        decision: Optional[PolicyDecision] = None,
+        receipt: Optional[DecisionReceipt] = None,
+    ):
         super().__init__(message)
         self.action = action
         self.decision = decision
+        self.receipt = receipt
 
 
 class ToolObservation(BaseModel):
@@ -38,17 +49,25 @@ class ToolObservation(BaseModel):
 
 
 class SecureExecutor(Executor):
-    """Ejecutor físico con validación estricta de políticas y barrera de seguridad."""
+    """Ejecutor físico con validación estricta de capacidades/recibos y aislamiento en sandbox."""
 
     def __init__(
         self,
         registry: Optional[ToolRegistry] = None,
+        sandbox: Optional[SandboxAdapter] = None,
         dry_run: bool = False,
         sanitizer: Optional[DataSanitizer] = None,
+        strict_capability: bool = True,
     ):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.dry_run = dry_run
+        if dry_run:
+            self.sandbox = sandbox or DryRunSandbox()
+        else:
+            self.sandbox = sandbox or LocalProcessSandbox()
         self.sanitizer = sanitizer or DataSanitizer()
+        self.strict_capability = strict_capability
+        self._consumed_receipts: Set[str] = set()
         self._custom_handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {}
 
     def register_handler(self, tool_name: str, handler: Callable[[Dict[str, Any]], str]) -> None:
@@ -59,20 +78,97 @@ class SecureExecutor(Executor):
         self,
         action: ActionCandidate,
         state: SessionState,
+        receipt: Optional[DecisionReceipt] = None,
         decision: Optional[PolicyDecision] = None,
     ) -> ToolObservation:
-        """Valida rigurosamente la decisión de la política y ejecuta la herramienta si está permitida."""
+        """Valida rigurosamente la autorización mediante capability/recibo y ejecuta en sandbox."""
         tool_name = action.tool_call.tool_name if action.tool_call else None
         tool_args = action.tool_call.arguments if action.tool_call else {}
 
-        # 1. BARRERA DE ENFORCEMENT: Verificar estatus de la política
-        if decision is not None and decision.status != DecisionStatus.ALLOW:
-            raise PolicyViolation(
-                f"Ejecución física DENEGADA para '{tool_name}': el estatus de la política es {decision.status} "
-                f"(Motivos: {', '.join(decision.reason_codes)})",
-                action=action,
-                decision=decision,
-            )
+        # 1. BARRERA DE ENFORCEMENT: Exigir Capability / DecisionReceipt válido
+        if receipt is None:
+            if decision is not None and not self.strict_capability:
+                # Modo de compatibilidad relajado explícito
+                if decision.status != DecisionStatus.ALLOW:
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': el estatus de la política es {decision.status} "
+                        f"(Motivos: {', '.join(decision.reason_codes)})",
+                        action=action,
+                        decision=decision,
+                    )
+            else:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': Se requiere un capability/DecisionReceipt "
+                    "válido y no reutilizado emitido por PolicyEngine. La ejecución directa sin autorización formal está terminantemente prohibida.",
+                    action=action,
+                    decision=decision,
+                )
+        else:
+            # Validación rigurosa del capability ligado
+            if receipt.decision_status != DecisionStatus.ALLOW:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': el recibo presenta estatus no autorizado: '{receipt.decision_status}' "
+                    f"(Motivos: {', '.join(receipt.reason_codes)})",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar hash de acción (evita manipulación o cambio de tool/args)
+            expected_action_hash = compute_action_hash(action)
+            if receipt.action_hash != expected_action_hash:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El hash de la acción ({expected_action_hash[:12]}...) "
+                    f"no coincide con el capability ({receipt.action_hash[:12]}...). Acción manipulada o desvinculada.",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar hash de estado (evita replay en estados desfasados)
+            snapshot_dict = state.to_snapshot()
+            snapshot_hash = compute_state_hash(snapshot_dict)
+            canonical_hash = state.compute_hash()
+
+            valid_hashes = {snapshot_hash, canonical_hash}
+            if "checkpoint_ids" in snapshot_dict:
+                # Comprobar estado con los checkpoints anteriores al auto-checkpoint actual
+                if len(state.checkpoint_ids) > 0:
+                    snap_prev_chk = dict(snapshot_dict)
+                    snap_prev_chk["checkpoint_ids"] = list(state.checkpoint_ids[:-1])
+                    valid_hashes.add(compute_state_hash(snap_prev_chk))
+
+            if receipt.state_hash not in valid_hashes:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El hash de estado ({receipt.state_hash[:12]}...) "
+                    f"está desfasado frente al estado actual ({snapshot_hash[:12]}...).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar ligadura de sesión
+            if receipt.session_id != state.session_id:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El ID de sesión del capability ({receipt.session_id}) "
+                    f"no coincide con la sesión activa ({state.session_id}).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar no-reutilización (Replay attack prevention)
+            if receipt.decision_id in self._consumed_receipts:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El recibo/capability '{receipt.decision_id}' "
+                    "ya ha sido consumido previamente (Replay attack prevention).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Consumir el capability de forma atómica
+            self._consumed_receipts.add(receipt.decision_id)
 
         # 2. BARRERA DE ENFORCEMENT: Verificar si la herramienta está prohibida en el estado
         if tool_name and tool_name in state.forbidden_tools:
@@ -80,6 +176,7 @@ class SecureExecutor(Executor):
                 f"Ejecución física DENEGADA para '{tool_name}': la herramienta está explícitamente PROHIBIDA en este estado.",
                 action=action,
                 decision=decision,
+                receipt=receipt,
             )
 
         # 3. BARRERA DE ENFORCEMENT: Verificar si la herramienta está registrada
@@ -88,6 +185,7 @@ class SecureExecutor(Executor):
                 f"Ejecución física DENEGADA: herramienta desconocida '{tool_name}' no admitida en ToolRegistry.",
                 action=action,
                 decision=decision,
+                receipt=receipt,
             )
 
         # 4. Modo cognitivo puro (sin herramienta física)
@@ -99,23 +197,15 @@ class SecureExecutor(Executor):
                 tool_name=None,
             )
 
-        # 5. Modo Dry-Run (para simulación sin tocar disco o SO)
-        if self.dry_run:
-            return ToolObservation(
-                output=f"[DRY-RUN] Herramienta '{tool_name}' autorizada pero omitida en modo dry-run.",
-                success=True,
-                execution_time_ms=0.0,
-                tool_name=tool_name,
-            )
-
-        # 6. Despacho a controlador personalizado si existe
+        # 5. Despacho a controlador personalizado si existe
         if tool_name in self._custom_handlers:
             start_t = time.perf_counter()
             try:
                 out = self._custom_handlers[tool_name](tool_args)
                 elapsed = (time.perf_counter() - start_t) * 1000.0
+                redacted = self.sanitizer.redact_text(out)
                 return ToolObservation(
-                    output=out,
+                    output=self.sanitizer.enforce_payload_limit(redacted),
                     success=True,
                     execution_time_ms=round(elapsed, 2),
                     tool_name=tool_name,
@@ -130,9 +220,9 @@ class SecureExecutor(Executor):
                     is_error=True,
                 )
 
-        # 7. Controladores nativos por defecto
+        # 6. Ejecución física contenida dentro del SandboxAdapter
         start_t = time.perf_counter()
-        raw_output, success, is_error = self._execute_builtin_tool(tool_name, tool_args)
+        raw_output, success, is_error = self._execute_builtin_tool_in_sandbox(tool_name, tool_args)
         elapsed = (time.perf_counter() - start_t) * 1000.0
 
         # Aplicar redacción de secretos y límite de payload configurado
@@ -147,56 +237,26 @@ class SecureExecutor(Executor):
             is_error=is_error,
         )
 
-    def _execute_builtin_tool(self, tool_name: str, args: Dict[str, Any]) -> tuple[str, bool, bool]:
-        """Ejecuta controladores nativos seguros para herramientas estándar."""
+    def _execute_builtin_tool_in_sandbox(self, tool_name: str, args: Dict[str, Any]) -> tuple[str, bool, bool]:
+        """Ejecuta controladores nativos seguros delegando en el SandboxAdapter."""
         if tool_name in ("read_file", "view_file"):
             path = str(args.get("path") or args.get("file") or "").strip()
-            if not path or not os.path.exists(path):
-                return f"Archivo '{path}' no existe en disco.", False, True
-            try:
-                with open(path, "r", encoding="utf-8", errors="replace") as f:
-                    content = f.read(50000)
-                    if len(content) >= 50000:
-                        content += "\n\n[... Truncado a 50.000 caracteres por seguridad ...]"
-                return f"Contenido de '{path}':\n{content}", True, False
-            except Exception as e:
-                return f"Error leyendo '{path}': {e}", False, True
+            res = self.sandbox.read_file(path)
+            return res.output, res.success, res.is_error
 
         elif tool_name == "edit_file":
             path = str(args.get("path") or "").strip()
-            return f"Archivo '{path}' modificado satisfactoriamente en entorno controlado.", True, False
+            content = str(args.get("content") or "").strip()
+            res = self.sandbox.edit_file(path, content)
+            return res.output, res.success, res.is_error
 
         elif tool_name == "run_command":
             cmd = str(args.get("command") or args.get("cmd") or "").strip()
-            if not cmd:
-                return "Comando vacío.", False, True
-            try:
-                if sys.platform == "win32":
-                    proc = subprocess.run(
-                        ["powershell", "-NoProfile", "-Command", cmd],
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-                else:
-                    proc = subprocess.run(
-                        cmd,
-                        shell=True,
-                        capture_output=True,
-                        text=True,
-                        timeout=15,
-                        encoding="utf-8",
-                        errors="replace",
-                    )
-                out = (proc.stdout or proc.stderr or "Comando ejecutado sin salida").strip()
-                return out[:10000], (proc.returncode == 0), (proc.returncode != 0)
-            except Exception as e:
-                return f"Error ejecutando '{cmd}': {e}", False, True
+            res = self.sandbox.execute_command(cmd)
+            return res.output, res.success, res.is_error
 
         elif tool_name == "finish":
             summary = str(args.get("summary") or "Tarea completada.")
             return f"Tarea concluida: {summary}", True, False
 
-        return f"Herramienta '{tool_name}' sin controlador físico implementado.", False, True
+        return f"Herramienta '{tool_name}' sin controlador físico implementado en sandbox.", False, True

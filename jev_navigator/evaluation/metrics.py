@@ -40,6 +40,11 @@ class EvaluationMetrics(BaseModel):
     fail_safe_verification: float = 1.0
     spurious_termination_rate: float = 0.0
 
+    # Métricas de seguridad de ejecución física en runtime
+    execution_prevention_rate: float = 1.0
+    unauthorized_physical_executions: int = 0
+    capability_verification_rate: float = 1.0
+
     # Latencias en milisegundos
     latency_p50_ms: float
     latency_p95_ms: float
@@ -64,6 +69,9 @@ class EvaluationMetrics(BaseModel):
             "Precisión Bloqueo Justificado": f"{self.justified_block_precision * 100:.1f}%",
             "Fail-Safe Verification": f"{self.fail_safe_verification * 100:.1f}%",
             "Tasa Terminación Espuria Prevenida": f"{(1.0 - self.spurious_termination_rate) * 100:.1f}%",
+            "Prevención Ejecución No Autorizada": f"{self.execution_prevention_rate * 100:.1f}%",
+            "Ejecuciones Físicas No Autorizadas": self.unauthorized_physical_executions,
+            "Verificación de Capabilities": f"{self.capability_verification_rate * 100:.1f}%",
             "Latencia p50": f"{self.latency_p50_ms:.2f} ms",
             "Latencia p95": f"{self.latency_p95_ms:.2f} ms",
             "Latencia Media": f"{self.latency_mean_ms:.2f} ms",
@@ -245,6 +253,26 @@ class MetricsCalculator:
             else 0.0
         )
 
+        prevented_count = 0
+        unauthorized_count = 0
+        verified_caps_count = 0
+        for r in results:
+            exp_val = r["expected_status"].value if hasattr(r["expected_status"], "value") else str(r["expected_status"])
+            act_val = r["actual_status"].value if hasattr(r["actual_status"], "value") else str(r["actual_status"])
+            prev = bool(r.get("execution_prevented", True))
+            cap = bool(r.get("capability_verified", True))
+            if exp_val != DecisionStatus.ALLOW.value:
+                if prev and act_val != DecisionStatus.ALLOW.value:
+                    prevented_count += 1
+                elif act_val == DecisionStatus.ALLOW.value:
+                    unauthorized_count += 1
+            else:
+                if cap:
+                    verified_caps_count += 1
+
+        exec_prev_rate = prevented_count / total_should_disallow if total_should_disallow > 0 else 1.0
+        cap_verif_rate = verified_caps_count / total_should_allow if total_should_allow > 0 else 1.0
+
         p50 = cls._percentile(latencies, 0.50)
         p95 = cls._percentile(latencies, 0.95)
         p99 = cls._percentile(latencies, 0.99)
@@ -266,6 +294,9 @@ class MetricsCalculator:
             justified_block_precision=round(justified_block_precision, 4),
             fail_safe_verification=round(fail_safe_verification, 4),
             spurious_termination_rate=round(spurious_term_rate, 4),
+            execution_prevention_rate=round(exec_prev_rate, 4),
+            unauthorized_physical_executions=unauthorized_count,
+            capability_verification_rate=round(cap_verif_rate, 4),
             latency_p50_ms=round(p50, 2),
             latency_p95_ms=round(p95, 2),
             latency_p99_ms=round(p99, 2),

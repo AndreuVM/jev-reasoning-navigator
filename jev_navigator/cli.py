@@ -345,16 +345,20 @@ def run_benchmark_cli(
     econ = compute_navigator_economic_value(report.metrics)
 
     summary_panel = Panel(
-        f"[bold white]Total Escenarios:[/] {report.metrics.total_scenarios}\n"
-        f"[bold white]Exactitud:[/] [bold green]{report.metrics.accuracy * 100:.1f}%[/]\n"
-        f"[bold white]F1-Score:[/] [bold green]{report.metrics.f1_score:.3f}[/]\n"
+        f"[bold white]Total Escenarios:[/] {report.metrics.total_scenarios} [dim](Dataset de Validación Procedural)[/]\n"
+        f"[bold white]Exactitud Decisional:[/] [bold green]{report.metrics.accuracy * 100:.1f}%[/]\n"
+        f"[bold white]F1-Score Decisional:[/] [bold green]{report.metrics.f1_score:.3f}[/]\n"
         f"[bold white]False Allow Rate (Métrica Crítica):[/] [bold green]{report.metrics.false_allow_rate * 100:.1f}%[/]\n"
         f"[bold white]Acciones Destructivas Falsamente Permitidas:[/] [bold green]{report.metrics.destructive_false_allow_count}[/]\n"
+        f"[bold cyan]─ Seguridad de Ejecución Física y Capabilities ─[/]\n"
+        f"[bold white]Prevención de Ejecución No Autorizada:[/] [bold green]{report.metrics.execution_prevention_rate * 100:.1f}%[/]\n"
+        f"[bold white]Ejecuciones Físicas No Autorizadas:[/] [bold green]{report.metrics.unauthorized_physical_executions}[/]\n"
+        f"[bold white]Verificación de Capabilities/Receipt:[/] [bold green]{report.metrics.capability_verification_rate * 100:.1f}%[/]\n"
         f"[bold white]Latencia p50 / p95:[/] {report.metrics.latency_p50_ms:.2f} ms / {report.metrics.latency_p95_ms:.2f} ms\n"
         f"[bold yellow]─ Valor Económico Estimado (Sección 20) ─[/]\n"
         f"[bold white]Valor Neto del Supervisor:[/] [bold green]${econ['net_navigator_value']:,.2f}[/]\n"
         f"[bold white]Coste de Fallos Evitados:[/] [green]${econ['gross_avoided_cost']:,.2f}[/] | [dim]Coste Supervisor: ${econ['navigator_cost']:.4f} | Penalización Rechazos: ${econ['false_block_cost']:.2f}[/]",
-        title="📊 [bold green]Métricas Consolidadas de Gobernanza y Eficiencia[/]",
+        title="📊 [bold green]Métricas Consolidadas de Gobernanza, Seguridad Física y Eficiencia[/]",
         border_style="green",
     )
     console.print(summary_panel)

@@ -91,6 +91,14 @@ class Navigator:
 
         return False
 
+    def confirm_action(self, action_id: str) -> None:
+        """Marca una acción sensible como confirmada explícitamente por el operador humano."""
+        self.policy_engine.permission_manager.confirm_action(action_id)
+
+    def is_action_confirmed(self, action_id: str) -> bool:
+        """Verifica si una acción cuenta con confirmación del operador humano."""
+        return self.policy_engine.permission_manager.is_action_confirmed(action_id)
+
     def propose(self, actions: List[ActionCandidate]) -> List[ActionCandidate]:
         """Filtra y valida candidatos eliminando herramientas prohibidas en el estado actual."""
         state = self._ensure_session()
@@ -254,9 +262,16 @@ class Navigator:
                     reason=f"Auto-checkpoint previo a mutación por '{tool_name}'",
                 )
 
-        # 4. Ejecución física con el Executor garantizado
+        # 4. Ejecución física con el Executor garantizado mediante capability ligado
+        exec_receipt = receipt
+        if self.shadow_mode and receipt.decision_status != DecisionStatus.ALLOW:
+            exec_receipt_data = receipt.model_dump()
+            exec_receipt_data["decision_status"] = DecisionStatus.ALLOW
+            exec_receipt_data["reason_codes"] = ["SHADOW_MODE_OVERRIDE"]
+            exec_receipt = DecisionReceipt(**exec_receipt_data)
+
         exec_decision = PolicyDecision(status=DecisionStatus.ALLOW) if self.shadow_mode else decision
-        observation = self.executor.execute(action, state, exec_decision)
+        observation = self.executor.execute(action, state, receipt=exec_receipt, decision=exec_decision)
 
         # Emitir eventos de ejecución y observación
         self.event_bus.publish(

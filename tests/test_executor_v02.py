@@ -3,10 +3,12 @@
 import pytest
 from jev_navigator.domain import (
     ActionCandidate,
+    DecisionReceipt,
     DecisionStatus,
     Goal,
     PolicyDecision,
     ToolCall,
+    compute_action_hash,
 )
 from jev_navigator.runtime import PolicyViolation, SecureExecutor, SessionState
 
@@ -24,9 +26,27 @@ def test_executor_blocks_unauthorized_decision_with_policy_violation():
 
     denied_statuses = [DecisionStatus.BLOCK, DecisionStatus.REPLAN, DecisionStatus.ABSTAIN]
     for status in denied_statuses:
+        receipt = DecisionReceipt(
+            decision_id=f"dec_{status.value}",
+            session_id=state.session_id,
+            action_id=action.id,
+            action_hash=compute_action_hash(action),
+            state_hash=state.compute_hash(),
+            decision_status=status,
+            reason_codes=["TEST_DENIAL"],
+        )
+        with pytest.raises(PolicyViolation) as exc_info:
+            executor.execute(action, state=state, receipt=receipt)
+
+        assert f"estatus no autorizado: '{status}'" in str(exc_info.value)
+        assert exc_info.value.action == action
+
+    # Modo compatibilidad con strict_capability=False
+    compat_executor = SecureExecutor(strict_capability=False)
+    for status in denied_statuses:
         decision = PolicyDecision(status=status, reason_codes=["TEST_DENIAL"])
         with pytest.raises(PolicyViolation) as exc_info:
-            executor.execute(action, state=state, decision=decision)
+            compat_executor.execute(action, state=state, decision=decision)
 
         assert f"el estatus de la política es {status}" in str(exc_info.value)
         assert exc_info.value.action == action
@@ -44,10 +64,17 @@ def test_executor_blocks_forbidden_tool_in_state():
         description="Ejecutar comando prohibido",
         tool_call=ToolCall(tool_name="run_command", arguments={"command": "dir"}),
     )
-    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+    receipt = DecisionReceipt(
+        decision_id="dec_allow_2",
+        session_id=state.session_id,
+        action_id=action.id,
+        action_hash=compute_action_hash(action),
+        state_hash=state.compute_hash(),
+        decision_status=DecisionStatus.ALLOW,
+    )
 
     with pytest.raises(PolicyViolation) as exc_info:
-        executor.execute(action, state=state, decision=decision)
+        executor.execute(action, state=state, receipt=receipt)
 
     assert "explícitamente PROHIBIDA" in str(exc_info.value)
 
@@ -62,10 +89,17 @@ def test_executor_blocks_unknown_tool_not_in_registry():
         description="Herramienta inventada",
         tool_call=ToolCall(tool_name="unregistered_malicious_plugin", arguments={}),
     )
-    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+    receipt = DecisionReceipt(
+        decision_id="dec_allow_3",
+        session_id=state.session_id,
+        action_id=action.id,
+        action_hash=compute_action_hash(action),
+        state_hash=state.compute_hash(),
+        decision_status=DecisionStatus.ALLOW,
+    )
 
     with pytest.raises(PolicyViolation) as exc_info:
-        executor.execute(action, state=state, decision=decision)
+        executor.execute(action, state=state, receipt=receipt)
 
     assert "herramienta desconocida" in str(exc_info.value)
 
@@ -80,11 +114,18 @@ def test_executor_executes_authorized_action_dry_run():
         description="Lectura simulada",
         tool_call=ToolCall(tool_name="read_file", arguments={"path": "dummy.txt"}),
     )
-    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+    receipt = DecisionReceipt(
+        decision_id="dec_allow_4",
+        session_id=state.session_id,
+        action_id=action.id,
+        action_hash=compute_action_hash(action),
+        state_hash=state.compute_hash(),
+        decision_status=DecisionStatus.ALLOW,
+    )
 
-    obs = executor.execute(action, state=state, decision=decision)
+    obs = executor.execute(action, state=state, receipt=receipt)
     assert obs.success is True
-    assert "[DRY-RUN]" in obs.output
+    assert "[DRY-RUN" in obs.output
     assert obs.tool_name == "read_file"
 
 
@@ -103,8 +144,15 @@ def test_executor_custom_handler_injection():
         description="Obtener URL",
         tool_call=ToolCall(tool_name="fetch_url", arguments={"url": "https://api.test"}),
     )
-    decision = PolicyDecision(status=DecisionStatus.ALLOW)
+    receipt = DecisionReceipt(
+        decision_id="dec_allow_5",
+        session_id=state.session_id,
+        action_id=action.id,
+        action_hash=compute_action_hash(action),
+        state_hash=state.compute_hash(),
+        decision_status=DecisionStatus.ALLOW,
+    )
 
-    obs = executor.execute(action, state=state, decision=decision)
+    obs = executor.execute(action, state=state, receipt=receipt)
     assert obs.success is True
     assert "Mocked URL content" in obs.output

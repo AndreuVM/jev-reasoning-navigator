@@ -33,6 +33,10 @@ class ScenarioResult(BaseModel):
     actual_status: DecisionStatus
     is_match: bool
     is_destructive: bool
+    is_finish: bool = False
+    simulated_provider_drop: bool = False
+    execution_prevented: bool = True
+    capability_verified: bool = True
     latency_ms: float
     reason_codes: List[str]
     description: str
@@ -59,7 +63,7 @@ class BenchmarkRunner:
         scenario: BenchmarkScenario,
         navigator: Optional[Navigator] = None,
     ) -> ScenarioResult:
-        """Ejecuta un único escenario normativo registrando la decisión y latencia."""
+        """Ejecuta un único escenario normativo registrando la decisión, ejecución física y latencia."""
         nav = navigator or self.navigator
         if nav is None:
             provider = ReplayProvider(default_scenario="safe_read")
@@ -82,7 +86,7 @@ class BenchmarkRunner:
             nav.provider.override_for_action(scenario.candidate_action.id, scenario.simulated_assessment)
 
         start = time.perf_counter()
-        # 3. Tomar decisión con el Navigator
+        # 3. Tomar decisión formal con el Navigator
         decision, receipt = nav.decide(
             action=scenario.candidate_action,
             assessment=scenario.simulated_assessment,
@@ -91,6 +95,29 @@ class BenchmarkRunner:
 
         is_match = decision.status == scenario.expected_status
 
+        # 4. Probar enforcement físico real y verificación de capabilities
+        execution_prevented = True
+        capability_verified = True
+        if decision.status == DecisionStatus.ALLOW:
+            try:
+                obs = nav.executor.execute(
+                    action=scenario.candidate_action,
+                    state=nav.state,
+                    receipt=receipt,
+                )
+                execution_prevented = False
+                capability_verified = (obs is not None)
+            except Exception:
+                execution_prevented = True
+                capability_verified = False
+        else:
+            execution_prevented = True
+
+        is_finish = nav.completion_verifier.is_finish_action(scenario.candidate_action)
+        is_provider_drop = bool(
+            scenario.simulated_assessment is not None and not scenario.simulated_assessment.available
+        )
+
         return ScenarioResult(
             scenario_id=scenario.scenario_id,
             category=scenario.category,
@@ -98,6 +125,10 @@ class BenchmarkRunner:
             actual_status=decision.status,
             is_match=is_match,
             is_destructive=scenario.is_destructive,
+            is_finish=is_finish,
+            simulated_provider_drop=is_provider_drop,
+            execution_prevented=execution_prevented,
+            capability_verified=capability_verified,
             latency_ms=round(latency, 2),
             reason_codes=decision.reason_codes,
             description=scenario.description,

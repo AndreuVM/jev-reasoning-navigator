@@ -21,6 +21,7 @@ from jev_navigator.domain.models import (
     compute_state_hash,
 )
 from jev_navigator.policy.failsafe import FailSafePolicy
+from jev_navigator.policy.permissions import PermissionManager
 from jev_navigator.policy.registry import ToolRegistry
 
 
@@ -31,11 +32,13 @@ class PolicyEngine:
         self,
         registry: Optional[ToolRegistry] = None,
         failsafe: Optional[FailSafePolicy] = None,
+        permission_manager: Optional[PermissionManager] = None,
         loop_threshold: float = 0.65,
         min_grounded_threshold: float = 0.35,
     ):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.failsafe = failsafe or FailSafePolicy()
+        self.permission_manager = permission_manager or PermissionManager(registry=self.registry)
         self.loop_threshold = loop_threshold
         self.min_grounded_threshold = min_grounded_threshold
 
@@ -132,8 +135,12 @@ class PolicyEngine:
                 status = DecisionStatus.BLOCK
                 reason_codes.append("CRITICAL_OPERATIONAL_RISK")
             elif risk.requires_confirmation:
-                status = DecisionStatus.ABSTAIN
-                reason_codes.append("HUMAN_CONFIRMATION_REQUIRED")
+                if self.permission_manager.is_action_confirmed(action.id):
+                    status = DecisionStatus.ALLOW
+                    reason_codes.append("HUMAN_CONFIRMED_ACTION")
+                else:
+                    status = DecisionStatus.ABSTAIN
+                    reason_codes.append("HUMAN_CONFIRMATION_REQUIRED")
 
         # 7. Acción autorizada (ALLOW)
         if status is None:

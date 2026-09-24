@@ -2,38 +2,41 @@
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-122%20passed-brightgreen.svg)]()
+[![Tests](https://img.shields.io/badge/tests-130%20passed-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-v0.2.1-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
+[![Security](https://img.shields.io/badge/security-sandbox%20isolated-green.svg)]()
 [![TypeSafe AI](https://img.shields.io/badge/engine-TypeSafe%20System%20One-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.2.0** a partir de una auditoría técnica externa, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
-$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Physical Execution (SecureExecutor)}$$
+Evolucionado en la **v0.2.1** a partir de rigurosas auditorías técnicas externas, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
+$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt} \neq \text{Isolated Sandbox (SecureExecutor)}$$
 
 ---
 
-## 1. Axiomas y Principios Arquitectónicos de v0.2
+## 1. Axiomas y Principios Arquitectónicos de v0.2.1
 
 1. **Juicio Semántico $\neq$ Política Operacional:**
    Una acción puede tener una probabilidad semántica de éxito elevada ($JEV = 0.95$) y ser al mismo tiempo operacionalmente inadmisible ($Risk = \text{CRITICAL}$, ej. `rm -rf /` o un archivo sensible `.env`). JEV emite juicio probabilístico; la `PolicyEngine` emite la decisión operativa (`ALLOW`, `BLOCK`, `REPLAN`, `ABSTAIN`).
-2. **Enforcement Físico Real (Defensa contra Prompt Injection):**
-   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física infranqueable a nivel de runtime: si la decisión no es `ALLOW` o la herramienta está prohibida, aborta inmediatamente levantando `PolicyViolation` antes de tocar el sistema operativo.
-3. **La Indisponibilidad no Equivale a Neutralidad (Fail-Safe Estricto):**
+2. **Enforcement Físico Basado en Capabilities (Defensa contra Prompt Injection):**
+   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física criptográficamente ligada a nivel de runtime: exige obligatoriamente un `DecisionReceipt` válido y no consumido con `status == ALLOW`, `action_hash == hash(action)` y `state_hash == hash(state)`. Invocaciones directas, manipuladas o de repetición (*replay attacks*) levantan `PolicyViolation` inmediatamente antes de tocar el sistema operativo.
+3. **Aislamiento en Sandbox de Proceso y Sanitización:**
+   La ejecución física de herramientas del sistema (`run_command`, `read_file`, `edit_file`) no corre directamente en el host con `shell=True`. Se delega en `SandboxAdapter` (`LocalProcessSandbox` o `DryRunSandbox`), que depura y sanitiza las variables de entorno (eliminando API keys y credenciales del proceso hijo), confina los accesos al directorio de trabajo permitido (*jail containment* anti-directory traversal) y ejecuta procesos tokenizados con límites estrictos de timeout.
+4. **La Indisponibilidad no Equivale a Neutralidad (Fail-Safe Estricto):**
    Si la red falla o el proveedor de inferencia semántica se cae, el sistema no asume un score neutro permisivo: aplica `FailSafePolicy` emitiendo `ABSTAIN` para acciones de bajo riesgo o `BLOCK` inmediato para acciones destructivas ($FalseAllowRate = 0.0\%$).
-4. **Erradicación de Alucinaciones en Herramientas de Observación:**
+5. **Erradicación de Alucinaciones en Herramientas de Observación:**
    Invocaciones como `read_file("archivo_inventado.py")` parten de premisas 100% alucinadas. `EvidenceEngine` valida que existan observaciones previas antes de permitir acciones dependientes y descalifica evidencias obsoletas cuando ocurren mutaciones (*stale state defense*).
-5. **Anti-Premature Finish:**
-   `CompletionVerifier` impide que el agente declare victoria prematura (`finish => highJEV`) sin antes validar formalmente que todos los `Goal.success_criteria` estén respaldados por evidencias empíricas comprobadas.
-6. **Backtracking Formal y Recuperación de Estado:**
+6. **Anti-Premature Finish y Verificación Estructurada:**
+   `CompletionVerifier` impide que el agente declare victoria prematura (`finish => highJEV`) sin antes validar formalmente que todos los `Goal.success_criteria` estén respaldados por evidencias empíricas comprobadas y resultados estructurados exitosos.
+7. **Backtracking Formal y Recuperación de Estado:**
    `CheckpointManager` captura snapshots canónicos SHA-256 de `SessionState`. Ante degradación o bucles, restaura el estado seguro, invalida los pasos descendientes y bloquea físicamente la herramienta o transición culpable.
 
 ---
 
-## 2. Flujo de Ejecución Normativo v0.2
+## 2. Flujo de Ejecución Normativo v0.2.1
 
-$$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{JEV Provider} \to \text{Policy} \to \text{Decision} \to \text{Execution} \to \text{Observation}$$
+$$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{JEV Provider} \to \text{Policy} \to \text{Capability Receipt} \to \text{SecureExecutor} \to \text{Sandbox} \to \text{Observation}$$
 
 ```
                 +---------------------------------------+
@@ -42,16 +45,18 @@ $$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{JEV Provider} \t
                                    | Propone candidatos
                                    v
 +-----------------------------------------------------------------------+
-|                 JEV Reasoning Navigator (v0.2 Runtime)                 |
+|                 JEV Reasoning Navigator (v0.2.1 Runtime)               |
 |                                                                       |
 |  1. EvidenceEngine        -> Verifica precondiciones empíricas        |
 |  2. RiskEngine            -> Análisis contextual de comandos y rutas  |
 |  3. TypeSafe / Replay     -> Inferencia semántica (Loop, Progress)    |
 |  4. CompletionVerifier    -> Valida criterios de éxito frente a finish|
-|  5. PolicyEngine          -> Matriz formal (ALLOW / BLOCK / REPLAN)   |
-|  6. CheckpointManager     -> Captura snapshot preventivo si muta      |
-|  7. SecureExecutor        -> Aplica veto físico o ejecuta en sandbox  |
-|  8. DecisionReceipt       -> Emisión de recibo criptográfico SHA-256   |
+|  5. PermissionManager     -> Control de acceso humano RBAC integrado  |
+|  6. PolicyEngine          -> Matriz formal (ALLOW / BLOCK / REPLAN)   |
+|  7. DecisionReceipt       -> Emisión de capability ligado (SHA-256)   |
+|  8. CheckpointManager     -> Captura snapshot preventivo si muta      |
+|  9. SecureExecutor        -> Barrera física: verifica capability único|
+| 10. LocalProcessSandbox   -> Ejecución aislada con env scrubbed & jail|
 +-----------------------------------------------------------------------+
                                    | Observación
                                    v
@@ -64,32 +69,42 @@ $$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{JEV Provider} \t
 
 ## 3. Estudio de Ablaciones y Comparativa de Seguridad
 
-Los benchmarks reproducibles con escenarios normativos de ground truth demuestran la necesidad crítica de cada capa:
+Los benchmarks reproducibles evalúan tanto la precisión decisional como la contención física de ejecución (vía `DryRunSandbox`), verificando el pipeline completo:
+$$\text{Action} \to \text{Policy} \to \text{Signed Capability Receipt} \to \text{SecureExecutor} \to \text{Sandbox}$$
+
+> **Nota metodológica sobre los benchmarks:** La suite incluye 10 escenarios normativos de validación directa y un catálogo paramétrico procedural capaz de generar 1.000+ escenarios sintéticos adversariales para contrastar propiedades e invariantes en condiciones extremas (caída de red, manipulaciones de hash, comandos ofuscados).
 
 ### 🔬 Estudio de Ablaciones (5 Capas Arquitectónicas):
-| Configuración | Exactitud (Accuracy) | F1-Score | False Allow Rate (Crítico) | Destructive False Allows | Diagnóstico |
-| :--- | :---: | :---: | :---: | :---: | :--- |
-| **1. Policy Only (Sin JEV)** | 50.0% | 0.531 | 55.6% | 1 | Incapaz de detectar bucles semánticos o estancamiento. |
-| **2. JEV (Sin Evidence Engine)** | 70.0% | 0.769 | 33.3% | 1 | Autoriza acciones basadas en premisas alucinadas. |
-| **3. JEV + Evidence (Sin Risk Engine)** | 50.0% | 0.638 | 44.4% | 2 | Permite comandos destructivos de shell (`rm -rf`). |
-| **4. JEV + Evidence + Risk (Fallback v0.1)** | 50.0% | 0.546 | 44.4% | 1 | Fallo de proveedor autoriza acciones destructivas. |
-| **5. Full v0.2 Architecture** | **100.0%** | **1.000** | **0.0%** | **0** | **Enforcement físico total y cero brechas de seguridad.** |
+| Configuración | Exactitud (Accuracy) | F1-Score | False Allow Rate (Crítico) | Destructive False Allows | Prevención Ejecución No Autorizada | Diagnóstico |
+| :--- | :---: | :---: | :---: | :---: | :---: | :--- |
+| **1. Policy Only (Sin JEV)** | 60.0% | 0.666 | 33.3% | 0 | 66.7% | Incapaz de detectar bucles semánticos o estancamiento. |
+| **2. JEV (Sin Evidence Engine)** | 80.0% | 0.822 | 11.1% | 0 | 88.9% | Autoriza acciones basadas en premisas alucinadas. |
+| **3. JEV + Evidence (Sin Risk Engine)** | 50.0% | 0.638 | 44.4% | 2 | 55.6% | Permite comandos destructivos de shell (`rm -rf`). |
+| **4. JEV + Evidence + Risk (Fallback v0.1)** | 60.0% | 0.677 | 33.3% | 1 | 66.7% | Fallo de proveedor autoriza acciones destructivas. |
+| **5. Full v0.2.1 Architecture** | **100.0%** | **1.000** | **0.0%** | **0** | **100.0%** | **Enforcement físico total, sandbox aislado y cero brechas.** |
 
-### 🛡️ Comparativa Directa: v0.1 vs v0.2
-| Métrica | v0.1 (Heurístico / Fallback Permisivo) | v0.2 (Arquitectura Desacoplada / Fail-Safe) |
+### 🛡️ Comparativa Directa: v0.1 vs v0.2.1
+| Métrica | v0.1 (Heurístico / Fallback Permisivo) | v0.2.1 (Capabilities + Fail-Safe + Sandbox) |
 | :--- | :---: | :---: |
-| **Exactitud (Accuracy)** | 50.0% | **100.0%** |
-| **F1-Score** | 0.546 | **1.000** |
-| **False Allow Rate (Crítico)** | 44.4% | **0.0%** |
+| **Exactitud Decisional** | 60.0% | **100.0%** |
+| **F1-Score Decisional** | 0.677 | **1.000** |
+| **False Allow Rate (Métrica Crítica)** | 33.3% | **0.0%** |
 | **Acciones Destructivas Falsamente Permitidas** | 1 | **0 (Brecha crítica cerrada)** |
-| **Latencia Media** | 0.07 ms | 0.22 ms |
+| **Prevención de Ejecución No Autorizada** | 66.7% | **100.0%** |
+| **Ejecuciones Físicas No Autorizadas** | 3 | **0** |
+| **Verificación de Capabilities/Receipt** | N/A | **100.0%** |
+| **Latencia Media** | 0.09 ms | 0.26 ms |
 
 ---
 
-## 4. Estructura de Paquetes v0.2
+## 4. Estructura de Paquetes v0.2.1
 
 ```
 jev-reasoning-navigator/
+├── .ci/                          # CI/CD Workflows y automatización
+│   └── workflows/
+│       ├── test.yml              # Tests multiplataforma (Python 3.11 & 3.12, Windows & Linux)
+│       └── security.yml          # Auditoría de seguridad con Bandit y comprobación de invariantes
 ├── jev_navigator/
 │   ├── domain/                   # Entidades puras y contratos inmutables (Pydantic v2)
 │   │   ├── goal.py               # Goal, SuccessCriterion, SubGoal
@@ -97,7 +112,7 @@ jev-reasoning-navigator/
 │   │   ├── observation.py        # Observation, ToolOutput
 │   │   ├── evidence.py           # Evidence, GroundingStatus
 │   │   ├── assessment.py         # ProviderAssessment, JEVAssessment, RiskAssessment
-│   │   ├── decision.py           # PolicyDecision, DecisionReceipt, DecisionStatus
+│   │   ├── decision.py           # PolicyDecision, DecisionReceipt, DecisionStatus, compute_action/state_hash
 │   │   ├── checkpoint.py         # Checkpoint, SessionSnapshot
 │   │   ├── state.py              # SessionState (hash canónico SHA-256 determinista)
 │   │   ├── models.py             # Re-exportador canónico de dominio
@@ -110,33 +125,35 @@ jev-reasoning-navigator/
 │   │   ├── loop_detector.py      # LoopDetector y análisis de anomalías
 │   │   ├── grounding.py          # GroundingVerifier (fundamentación empírica estricta)
 │   │   ├── risk.py               # RiskEngine (inspección de argumentos shell y archivos)
-│   │   └── completion.py         # CompletionVerifier (anti-premature finish)
+│   │   └── completion.py         # CompletionVerifier estructurado (anti-premature finish)
 │   ├── policy/                   # Políticas operacionales de admisión
 │   │   ├── registry.py           # ToolRegistry y ToolSpec tipados
 │   │   ├── permissions.py        # PermissionManager y control de acceso RBAC
 │   │   ├── failsafe.py           # FailSafePolicy para caídas de red o incertidumbre
-│   │   └── engine.py             # PolicyEngine (matriz ALLOW / BLOCK / REPLAN / ABSTAIN)
-│   ├── runtime/                  # Estado, orquestación, checkpoints y ejecución
+│   │   └── engine.py             # PolicyEngine con soporte de confirmación humana
+│   ├── runtime/                  # Estado, orquestación, checkpoints, sandbox y ejecución
 │   │   ├── state_store.py        # InMemoryStateStore y abstracciones de persistencia
 │   │   ├── checkpoints.py        # CheckpointManager y rollback con invalidación de descendientes
-│   │   ├── executor.py           # SecureExecutor y excepción PolicyViolation
+│   │   ├── sandbox.py            # SandboxAdapter, LocalProcessSandbox (env scrubbing, jail) y DryRunSandbox
+│   │   ├── executor.py           # SecureExecutor con validación estricta de capabilities y no-replay
 │   │   └── navigator.py          # Navigator (orquestador del pipeline completo)
 │   ├── integrations/             # Integraciones externas y protocolos
-│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.0
-│   │       └── server.py         # Servidor MCP stdio con registro formal de herramientas
+│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.1
+│   │       └── server.py         # Servidor MCP stdio con registro formal de herramientas v2
 │   ├── evaluation/               # Framework de benchmarking y métricas
 │   │   ├── scenarios.py          # ScenarioCatalog y generador con ground truth
-│   │   ├── metrics.py            # Precision, Recall, F1, FalseAllowRate, percentiles p50/p95
+│   │   ├── metrics.py            # Decision and Physical Execution safety metrics
 │   │   ├── reports.py            # Generador formal de informes de benchmark
-│   │   └── runner.py             # BenchmarkRunner y motor de ablaciones
+│   │   └── runner.py             # BenchmarkRunner con verificación de ejecución física en sandbox
 │   ├── interceptor/              # Servidor MCP y middleware de tiempo real
-│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + v0.2)
+│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + nativo v0.2.1)
 │   │   └── proxy_middleware.py   # Middleware para agentes LLM en streaming
 │   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich
 │   ├── live_agent.py             # Agente autónomo con Gemini supervisado en vivo
 │   └── dashboard.py              # Dashboard TUI interactivo en tiempo real
-├── tests/                        # 113 tests unitarios y de integración pasando al 100%
-├── pyproject.toml
+├── tests/                        # 130 tests unitarios, de integración y de evasión/bypass pasando al 100%
+├── SECURITY.md                   # Política formal de divulgación y modelo de amenazas
+├── pyproject.toml                # v0.2.1
 └── README.md
 ```
 
@@ -229,12 +246,13 @@ uv run jev-live "Corregir función en parser.py" --model gemini-2.5-flash --once
 }
 ```
 
-### Herramientas MCP Nativas v0.2:
+### Herramientas MCP Nativas v0.2.1:
 - `jev_v2_start_session(goal, session_id)`: Inicializa una sesión formal con objetivo y checkpoint génesis.
-- `jev_v2_evaluate_action(action, goal, session_id)`: Evalúa una acción candidata a través de todo el pipeline emitiendo decisión operacional y recibo auditable.
-- `jev_v2_step_and_execute(action, auto_checkpoint)`: Evalúa y ejecuta físicamente con captura de observación, auto-checkpoint y actualización de evidencia.
+- `jev_v2_evaluate_action(action, goal, session_id)`: Evalúa una acción candidata a través de todo el pipeline emitiendo decisión operacional y capability/recibo auditable.
+- `jev_v2_step_and_execute(action, auto_checkpoint)`: Evalúa y ejecuta físicamente en sandbox con captura de observación, auto-checkpoint y actualización de evidencia.
 - `jev_v2_rollback(checkpoint_id, culprit_tool, reason)`: Restaura el estado al último checkpoint e invalida la herramienta reincidente.
 - `jev_v2_get_session_state()`: Devuelve el snapshot serializado del estado y su SHA-256 canónico.
+- `jev_v2_confirm_action(action_id)`: Registra la confirmación humana explícita para desbloquear acciones con `requires_confirmation=True`.
 
 ### Herramientas MCP Compatibles v0.1:
 - `jev_evaluate_next_step`: Evaluación reactiva de siguiente paso.

@@ -5,6 +5,7 @@ from enum import Enum
 import hashlib
 import json
 from typing import Any, Dict, List, Optional
+import uuid
 from pydantic import BaseModel, ConfigDict, Field
 
 from jev_navigator.domain.assessment import ProviderAssessment, RiskAssessment
@@ -43,6 +44,8 @@ class DecisionReceipt(BaseModel):
     action_id: str
     state_hash: str
     action_hash: str
+    nonce: str = Field(default_factory=lambda: uuid.uuid4().hex)
+    signature: Optional[str] = None
 
     # 2. Proveedor
     provider_available: bool = True

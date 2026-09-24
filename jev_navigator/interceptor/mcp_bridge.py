@@ -278,6 +278,15 @@ class MCPBridge:
             "state_hash": self.navigator.state.compute_hash(),
         }
 
+    def v2_confirm_action(self, action_id: str) -> Dict[str, Any]:
+        """Marca una acción sensible como confirmada formalmente por el operador humano."""
+        self.navigator.confirm_action(action_id)
+        return {
+            "action_id": action_id,
+            "confirmed": True,
+            "message": f"Acción '{action_id}' confirmada formalmente para autorización por PolicyEngine.",
+        }
+
     def _handle_request(self, req: Dict[str, Any]) -> None:
         """Procesa una solicitud JSON-RPC individual y escribe la respuesta en stdout."""
         try:
@@ -296,7 +305,7 @@ class MCPBridge:
                         },
                         "serverInfo": {
                             "name": "jev-navigator",
-                            "version": "0.2.0"
+                            "version": "0.2.1"
                         }
                     }
                 }
@@ -405,6 +414,17 @@ class MCPBridge:
                                 "properties": {},
                             },
                         },
+                        {
+                            "name": "jev_v2_confirm_action",
+                            "description": "Confirma explícitamente una acción de alto riesgo o que requiere autorización humana (PermissionManager).",
+                            "inputSchema": {
+                                "type": "object",
+                                "properties": {
+                                    "action_id": {"type": "string"},
+                                },
+                                "required": ["action_id"],
+                            },
+                        },
                     ]
                 }
                 out = {"jsonrpc": "2.0", "id": req_id, "result": res}
@@ -457,6 +477,11 @@ class MCPBridge:
                     out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
                 elif tool_name == "jev_v2_get_session_state":
                     result = self.v2_get_session_state()
+                    out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
+                elif tool_name == "jev_v2_confirm_action":
+                    result = self.v2_confirm_action(
+                        action_id=arguments.get("action_id", ""),
+                    )
                     out = {"jsonrpc": "2.0", "id": req_id, "result": {"content": [{"type": "text", "text": json.dumps(result, indent=2)}]}}
                 else:
                     out = {"jsonrpc": "2.0", "id": req_id, "error": {"code": -32601, "message": "Method not found"}}

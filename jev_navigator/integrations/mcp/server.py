@@ -1,11 +1,15 @@
-"""Servidor Model Context Protocol (MCP) para integración formal v0.2.
+"""Servidor Model Context Protocol (MCP) para integración formal v0.2.1.
 
 Expone las herramientas y diagnósticos de supervisión cognitiva de JEV Reasoning Navigator:
-- jev_evaluate_next_step
-- jev_evaluate_step_chunk
-- jev_diagnose_trace
-- jev_checkpoint_rollback
-- jev_get_receipts
+- jev_v2_start_session
+- jev_v2_evaluate_action
+- jev_v2_step_and_execute
+- jev_v2_rollback
+- jev_v2_get_session_state
+- jev_v2_confirm_action
+- jev_evaluate_next_step (compatibilidad v0.1)
+- jev_evaluate_step_chunk (compatibilidad v0.1)
+- jev_diagnose_trace (compatibilidad v0.1)
 """
 
 import sys
