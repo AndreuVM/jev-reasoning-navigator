@@ -55,3 +55,177 @@ class InMemoryStateStore(StateStore, CheckpointStore):
         self._states.clear()
         self._checkpoints.clear()
         self._session_checkpoints.clear()
+
+
+class SqliteStateStore(StateStore, CheckpointStore):
+    """Almacén durable y atómico basado en SQLite para estados de sesión y checkpoints.
+    
+    Garantiza la preservación transaccional de sesiones y árboles de checkpoints
+    sobreviviendo a fallos o reinicios del proceso ejecutor.
+    """
+
+    def __init__(self, db_path: str = ".jev_cache/state.db"):
+        import os
+        import threading
+
+        self.db_path = str(db_path)
+        if self.db_path != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+            
+        self._lock = threading.Lock()
+        self._seq = 0
+        self._init_db()
+
+    def _get_connection(self):
+        import sqlite3
+        if self.db_path == ":memory:":
+            if not hasattr(self, "_mem_conn") or self._mem_conn is None:
+                self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            return self._mem_conn
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+    def _close_conn(self, conn) -> None:
+        if self.db_path != ":memory:":
+            conn.close()
+
+    def _init_db(self) -> None:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS sessions (
+                            session_id TEXT PRIMARY KEY,
+                            state_json TEXT NOT NULL,
+                            updated_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS checkpoints (
+                            id TEXT PRIMARY KEY,
+                            session_id TEXT NOT NULL,
+                            sequence_num INTEGER NOT NULL,
+                            checkpoint_json TEXT NOT NULL,
+                            created_at TEXT NOT NULL
+                        );
+                        """
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_chk_session ON checkpoints (session_id, sequence_num);"
+                    )
+            finally:
+                self._close_conn(conn)
+
+    def save_state(self, state: SessionState) -> None:
+        import datetime
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                raw_json = state.model_dump_json()
+                now = datetime.datetime.utcnow().isoformat()
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO sessions (session_id, state_json, updated_at)
+                        VALUES (?, ?, ?)
+                        """,
+                        (state.session_id, raw_json, now),
+                    )
+            finally:
+                self._close_conn(conn)
+
+    def load_state(self, session_id: str) -> Optional[SessionState]:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT state_json FROM sessions WHERE session_id = ?", (session_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return SessionState.model_validate_json(row[0])
+            finally:
+                self._close_conn(conn)
+
+    def save_checkpoint(self, checkpoint: Checkpoint) -> None:
+        import datetime
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                self._seq += 1
+                raw_json = checkpoint.model_dump_json()
+                now = datetime.datetime.utcnow().isoformat()
+                with conn:
+                    conn.execute(
+                        """
+                        INSERT OR REPLACE INTO checkpoints (id, session_id, sequence_num, checkpoint_json, created_at)
+                        VALUES (?, ?, ?, ?, ?)
+                        """,
+                        (checkpoint.id, checkpoint.session_id, self._seq, raw_json, now),
+                    )
+            finally:
+                self._close_conn(conn)
+
+    def get_checkpoint(self, checkpoint_id: str) -> Optional[Checkpoint]:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT checkpoint_json FROM checkpoints WHERE id = ?", (checkpoint_id,))
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return Checkpoint.model_validate_json(row[0])
+            finally:
+                self._close_conn(conn)
+
+    def get_latest_checkpoint(self, session_id: Optional[str] = None) -> Optional[Checkpoint]:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                if session_id:
+                    cur.execute(
+                        "SELECT checkpoint_json FROM checkpoints WHERE session_id = ? ORDER BY sequence_num DESC LIMIT 1",
+                        (session_id,),
+                    )
+                else:
+                    cur.execute(
+                        "SELECT checkpoint_json FROM checkpoints ORDER BY sequence_num DESC LIMIT 1"
+                    )
+                row = cur.fetchone()
+                if not row:
+                    return None
+                return Checkpoint.model_validate_json(row[0])
+            finally:
+                self._close_conn(conn)
+
+    def list_checkpoints(self, session_id: str) -> List[Checkpoint]:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT checkpoint_json FROM checkpoints WHERE session_id = ? ORDER BY sequence_num ASC",
+                    (session_id,),
+                )
+                rows = cur.fetchall()
+                return [Checkpoint.model_validate_json(r[0]) for r in rows]
+            finally:
+                self._close_conn(conn)
+
+    def clear(self) -> None:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                with conn:
+                    conn.execute("DELETE FROM sessions;")
+                    conn.execute("DELETE FROM checkpoints;")
+            finally:
+                self._close_conn(conn)

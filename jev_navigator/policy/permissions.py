@@ -30,16 +30,44 @@ class HumanApprovalTicket(BaseModel):
 class PermissionManager:
     """Gestiona la autorización operacional de acciones según riesgo y confirmación del operador."""
 
-    def __init__(self, registry: Optional[ToolRegistry] = None, require_confirmation_for_high_risk: bool = True):
+    def __init__(
+        self,
+        registry: Optional[ToolRegistry] = None,
+        require_confirmation_for_high_risk: bool = True,
+        audit_log_path: Optional[str] = None,
+    ):
+        import os
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.require_confirmation_for_high_risk = require_confirmation_for_high_risk
+        self.audit_log_path = audit_log_path
         self._confirmed_actions: Set[str] = set()
         self._tickets: Dict[str, HumanApprovalTicket] = {}
 
+        if self.audit_log_path and os.path.exists(self.audit_log_path):
+            self._load_audit_log()
+
+    def _load_audit_log(self) -> None:
+        try:
+            with open(self.audit_log_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if line:
+                        ticket = HumanApprovalTicket.model_validate_json(line)
+                        if not ticket.is_expired():
+                            self._tickets[ticket.action_id] = ticket
+                            self._confirmed_actions.add(ticket.action_id)
+        except Exception:
+            pass
+
     def grant_approval(self, ticket: HumanApprovalTicket) -> None:
-        """Registra un ticket formal de aprobación emitido por un operador."""
+        """Registra un ticket formal de aprobación emitido por un operador y lo audita durablemente."""
+        import os
         self._tickets[ticket.action_id] = ticket
         self._confirmed_actions.add(ticket.action_id)
+        if self.audit_log_path:
+            os.makedirs(os.path.dirname(os.path.abspath(self.audit_log_path)), exist_ok=True)
+            with open(self.audit_log_path, "a", encoding="utf-8") as f:
+                f.write(ticket.model_dump_json() + "\n")
 
     def confirm_action(
         self,

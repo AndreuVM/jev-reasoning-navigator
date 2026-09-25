@@ -71,13 +71,13 @@ class SecureExecutor(Executor):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.dry_run = dry_run
         if dry_run:
-            self.sandbox = sandbox or DryRunSandbox()
+            self.sandbox = sandbox if sandbox is not None else DryRunSandbox()
         else:
-            self.sandbox = sandbox or LocalProcessSandbox()
-        self.sanitizer = sanitizer or DataSanitizer()
+            self.sandbox = sandbox if sandbox is not None else LocalProcessSandbox()
+        self.sanitizer = sanitizer if sanitizer is not None else DataSanitizer()
         self.strict_capability = strict_capability
         self.secret_key = secret_key
-        self.nonce_store = nonce_store or InMemoryNonceStore()
+        self.nonce_store = nonce_store if nonce_store is not None else InMemoryNonceStore()
         self._consumed_receipts: Set[str] = set()
         self._custom_handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {}
 

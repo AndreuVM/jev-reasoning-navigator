@@ -1,6 +1,6 @@
 [project]
 name = "jev-reasoning-navigator"
-version = "0.3.0a1"
+version = "0.3.0b1"
 description = "JEV Reasoning Navigator: Cognitive supervision, loop prevention, and anti-hallucination engine for autonomous LLM agents using TypeSafe AI"
 readme = "README.md"
 requires-python = ">=3.11"

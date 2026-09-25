@@ -62,6 +62,10 @@ class DataSanitizer:
 
         return result
 
+    def mask_secrets(self, text: str) -> str:
+        """Alias para redact_text."""
+        return self.redact_text(text)
+
     def redact_dict(self, data: Any) -> Any:
         """Sanitiza recursivamente estructuras de datos (dicts, lists, primitives)."""
         if isinstance(data, dict):

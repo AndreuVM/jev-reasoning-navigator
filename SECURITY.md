@@ -4,8 +4,8 @@
 
 | Versión | Soportada | Estado de Mantenimiento |
 | :--- | :---: | :--- |
-| **0.3.x (v0.3-alpha)** | ✅ Sí | Versión activa principal: Integración LAYA System-1, ProviderContextBuilder, escalado por confianza. |
-| **0.2.x (v0.2.2)** | ✅ Sí | Versión estable previa con enforcement formal, HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
+| **0.3.x (v0.3-beta)** | ✅ Sí | Versión activa principal: Enforcement formal, Sqlite stores durables, ContainerSandbox, EgressPolicy estricta y suite de tests de seguridad dedicada. |
+| **0.2.x (v0.2.2)** | ✅ Sí | Versión previa estable con HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
 | 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2+. |
 
 ---
@@ -17,18 +17,20 @@ JEV Reasoning Navigator asume un entorno de adversarios hostiles donde el modelo
 - **Alucinación de herramientas y parámetros** (invocaciones no fundamentadas empíricamente).
 - **Tentativas de manipulación de estado o replay attacks** (reutilización de autorizaciones pasadas).
 - **Evasión de límites del filesystem y ejecución arbitraria en el host**.
-- **Exfiltración o llamadas de red no autorizadas (Network Egress)**.
+- **Exfiltración o llamadas de red no autorizadas (Network Egress y SSRF a metadatos cloud)**.
 
 Para mitigar estas amenazas, el runtime establece una **cadena formal de custodia de autorización**:
 
-$$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \to \text{PolicyEngine} \to \text{Bound DecisionReceipt (HMAC)} \to \text{SecureExecutor} \to \text{Process Sandbox} \to \text{OS}$$
+$$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \to \text{PolicyEngine} \to \text{Bound DecisionReceipt (HMAC)} \to \text{SecureExecutor} \to \text{Process/Container Sandbox} \to \text{OS}$$
 
 ### Principios Fundamentales:
 1. **Separación de Responsabilidades y Delimitación de Host:**
    $$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Physical Execution (SecureExecutor)}$$
    $$\text{Policy Enforcement} \neq \text{Host Isolation}$$
-   El runtime garantiza que ninguna política de seguridad sea evadida a nivel de aplicación. No obstante, `LocalProcessSandbox` confina procesos hijos locales; no es un hipervisor de máquina virtual ni un contenedor aislado a nivel de kernel. Para entornos multi-inquilino donde se ejecuten cargas de código hostil arbitrario, la ejecución debe envolverse en microVMs (p. ej. Firecracker) o contenedores con seccomp/cgroups.
-2. **Capabilities Ligados Criptográficamente (DecisionReceipt con HMAC-SHA256):**
+   El runtime garantiza que ninguna política de seguridad sea evadida a nivel de aplicación. Para aislamiento a nivel de sistema operativo y kernel, el framework soporta:
+   - `ContainerSandboxAdapter`: Ejecución contenida en contenedores OCI (Docker/Podman) con `--read-only`, aislamiento de red (`--network=none`), límites estrictos de CPU/memoria y descarte de privilegios (`--cap-drop=ALL`).
+   - `LocalProcessSandbox`: Confinamiento local de procesos hijos con desreferenciación real de symlinks, purga de entorno y fallback ordenado.
+2. **Capabilities Ligados Criptográficamente (DecisionReceipt con HMAC-SHA256) y NonceStore Durable:**
    `SecureExecutor` no ejecuta ninguna herramienta física sin recibir un capability emitido por la `PolicyEngine` con:
    - `decision_status == ALLOW`
    - `action_hash == SHA256(action)`
@@ -36,14 +38,31 @@ $$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \
    - `session_id == active_session_id`
    - `signature == HMAC-SHA256(secret_key, payload)` verificado de forma inmune a ataques de temporización (`hmac.compare_digest`).
    - `is_expired() == False` validado contra la ventana de validez temporal (`expires_at` / TTL).
-   - `nonce` no consumido previamente verificado mediante `NonceStore` con poda automática (`prune_expired`).
-3. **Contención de Procesos en Sandbox (`LocalProcessSandbox`):**
+   - `nonce` no consumido previamente verificado mediante `SqliteNonceStore` persistente en disco o `InMemoryNonceStore`, con poda automática de nonces expirados (`prune_expired`). Previene ataques de repetición a través de reinicios del proceso ejecutor.
+3. **Persistencia Durable de Estados y Auditoría de Permisos:**
+   - `SqliteStateStore`: Almacén transaccional en SQLite con modo WAL para sesiones y checkpoints versionados cronológicamente.
+   - `PermissionManager`: Registro transaccional en disco (`audit_log_path`) en formato JSONL inmutable para todas las solicitudes, aprobaciones y rechazos de intervención humana (HITL).
+4. **Política de Egress de Red y Defensa contra SSRF (`EgressPolicy`):**
+   - Modos operativos: `BLOCK_ALL` (por defecto), `ALLOWLIST` (dominios explícitos) y `AUDITED`.
+   - Bloqueo preventivo incondicional de direcciones privadas RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`), interfaces de loopback (`127.0.0.1`, `localhost`) y endpoints de metadatos de proveedores cloud (`169.254.169.254`, `metadata.google.internal`), neutralizando vectores de SSRF y robo de credenciales de instancia.
+5. **Contención de Procesos en Sandbox:**
    - **Depuración de Entorno:** Las variables sensibles (`TYPESAFE_API_KEY`, `GEMINI_API_KEY`, tokens y contraseñas) son purgadas del entorno del proceso hijo antes de cualquier ejecución.
    - **Neutralización de Red y Proxies:** Si `allow_network=False` (por defecto), se bloquean comandos de egress (`curl`, `wget`, `nc`, `ssh`, etc.) y se redirigen las variables proxy (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) a `http://127.0.0.1:0`.
    - **Contención de Directorio y Anti-Symlink (Jail Path):** Las rutas de archivos y comandos son forzadas a resolverse dentro del workspace delimitado utilizando `os.path.realpath` para desreferenciar symlinks físicos y prevenir fugas por enlaces simbólicos o traversals (`../`).
    - **Prevención de Inyección Shell:** Ejecución tokenizada sin `shell=True` arbitrario y con timeouts forzados.
-4. **Sanitización de Salidas (`DataSanitizer`):**
+6. **Sanitización de Salidas (`DataSanitizer`):**
    Las observaciones retornadas por las herramientas son analizadas y enmascaradas (eliminando credenciales, tokens JWT y claves privadas) y envueltas en delimitadores de confianza antes de ser inyectadas en la memoria del agente.
+7. **Suite de Seguridad Dedicada (`tests/security/`):**
+   Más de 30 tests de seguridad que evalúan activamente vectores de ataque adversariales:
+   - Forja y alteración de firmas de recibos HMAC.
+   - Ataques de replay intra-proceso y tras reinicio con almacenes SQLite.
+   - Path traversal y escape por enlaces simbólicos.
+   - Inyección de comandos shell y subprocesos.
+   - Exfiltración de red y evasión de políticas de egress.
+   - Fuga de secretos y sanitización de credenciales.
+   - Inyección indirecta de prompts en observaciones y respuestas de herramientas.
+   - Aislamiento de límites de seguridad en el servidor MCP.
+   - Prevalencia de políticas y prevención de finalizaciones prematuras.
 
 ---
 

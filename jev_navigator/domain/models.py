@@ -12,6 +12,7 @@ from jev_navigator.domain.decision import (
     PolicyDecision,
     compute_receipt_signature,
     compute_state_hash,
+    sign_receipt,
     verify_receipt_signature,
 )
 from jev_navigator.domain.evidence import Claim, Evidence

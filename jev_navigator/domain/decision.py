@@ -76,8 +76,10 @@ class DecisionReceipt(BaseModel):
     timestamp: datetime = Field(default_factory=datetime.utcnow)
 
     def __init__(self, **data: Any):
-        # Compatibilidad hacia atrás: si se pasa 'decision' en lugar de 'decision_status'
-        if "decision" in data and "decision_status" not in data:
+        # Compatibilidad: si se pasa 'status' o 'decision' en lugar de 'decision_status'
+        if "status" in data and "decision_status" not in data:
+            data["decision_status"] = data.pop("status")
+        elif "decision" in data and "decision_status" not in data:
             data["decision_status"] = data.pop("decision")
         super().__init__(**data)
 
@@ -111,6 +113,21 @@ def compute_receipt_signature(
     return hmac.new(secret_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
 
 
+def sign_receipt(receipt: DecisionReceipt, secret_key: str) -> DecisionReceipt:
+    """Firma un DecisionReceipt con la clave secreta y devuelve una instancia actualizada con su firma HMAC."""
+    sig = compute_receipt_signature(
+        secret_key=secret_key,
+        decision_id=receipt.decision_id,
+        session_id=receipt.session_id,
+        action_hash=receipt.action_hash,
+        state_hash=receipt.state_hash,
+        nonce=receipt.nonce,
+        decision_status=receipt.decision_status,
+        expires_at=receipt.expires_at,
+    )
+    return receipt.model_copy(update={"signature": sig})
+
+
 def verify_receipt_signature(secret_key: str, receipt: DecisionReceipt) -> bool:
     """Verifica de forma inmune a ataques de temporización si el recibo fue firmado con la clave del runtime."""
     if not receipt.signature:
@@ -128,7 +145,17 @@ def verify_receipt_signature(secret_key: str, receipt: DecisionReceipt) -> bool:
     return hmac.compare_digest(receipt.signature, expected)
 
 
-def compute_state_hash(state_dict: Dict[str, Any]) -> str:
+def compute_state_hash(state_dict: Any) -> str:
     """Calcula un hash SHA-256 determinista para el estado canónico."""
+    if hasattr(state_dict, "to_snapshot"):
+        state_dict = state_dict.to_snapshot()
+    elif hasattr(state_dict, "model_dump"):
+        state_dict = state_dict.model_dump()
+    elif not isinstance(state_dict, dict):
+        try:
+            state_dict = dict(state_dict)
+        except Exception:
+            state_dict = {"repr": str(state_dict)}
     canonical = json.dumps(state_dict, sort_keys=True, separators=(",", ":"), default=str)
     return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+

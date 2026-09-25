@@ -1,29 +1,35 @@
-# JEV Reasoning Navigator v0.3.0a1 (v0.3-alpha)
+# JEV Reasoning Navigator v0.3.0b1 (v0.3-beta)
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-146%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.3--alpha-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.3--beta-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
-[![Security](https://img.shields.io/badge/security-sandbox%20hardened-green.svg)]()
+[![Security](https://img.shields.io/badge/security-sandbox%20%26%20container%20hardened-green.svg)]()
 [![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20Replay-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.3-alpha (v0.3.0a1)** a partir de la integración del proveedor **LAYA** (primitivas System-1 `choice`, `score`, `noul`), el estandarizado **`ProviderContextBuilder`**, escalado por baja confianza (*JEV-as-a-Judge: Accept When Confident, Escalate When Unsure*), y el cierre de deuda técnica de la Fase 0, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
-$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Process Sandbox (SecureExecutor)}$$
+Evolucionado en la **v0.3-beta (v0.3.0b1)** a partir del cierre completo de la **Fase 2 (Enforcement & Hardening)**: capacidades criptográficas HMAC-SHA256, almacenes durables SQLite (`SqliteNonceStore`, `SqliteStateStore`), aislamiento de contenedor OCI/Docker (`ContainerSandboxAdapter`), política formal de egress de red y defensa contra SSRF/metadatos cloud (`EgressPolicy`), registro auditable de autorizaciones humanas en disco y una suite de seguridad dedicada de más de 30 tests adversariales (`tests/security/`), el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
+$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Sandbox/Container (SecureExecutor)}$$
 
 ---
 
-## 1. Axiomas y Principios Arquitectónicos de v0.2.2
+## 1. Axiomas y Principios Arquitectónicos de v0.3-beta
 
 1. **Juicio Semántico $\neq$ Política Operacional:**
    Una acción puede tener una probabilidad semántica de éxito elevada ($JEV = 0.95$) y ser al mismo tiempo operacionalmente inadmisible ($Risk = \text{CRITICAL}$, ej. `rm -rf /` o un archivo sensible `.env`). JEV emite juicio probabilístico; la `PolicyEngine` emite la decisión operativa (`ALLOW`, `BLOCK`, `REPLAN`, `ABSTAIN`).
-2. **Enforcement Criptográfico Basado en Capabilities (HMAC-SHA256 y Anti-Replay):**
-   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física criptográficamente ligada a nivel de runtime: exige obligatoriamente un `DecisionReceipt` firmado mediante **HMAC-SHA256**, no expirado (`expires_at`), con `status == ALLOW`, `action_hash == hash(action)` y `state_hash == hash(state)`. Invocaciones directas, firmas manipuladas, capabilities caducados o intentos de reutilización (*replay attacks*) son bloqueados inmediatamente por un almacén de nonces con poda por TTL (`NonceStore`) levantando `PolicyViolation` antes de tocar el sistema operativo.
-3. **Contención en Sandbox de Proceso vs Aislamiento de Host ($\text{Policy Enforcement} \neq \text{Host Isolation}$):**
-   La ejecución física de herramientas del sistema (`run_command`, `read_file`, `edit_file`) no corre en el host con `shell=True`. Se delega en `SandboxAdapter` (`LocalProcessSandbox` o `DryRunSandbox`), que confina los accesos al workspace resolviendo enlaces simbólicos canónicos (`os.path.realpath`) para anular vectores de *symlink traversal* y *TOCTOU*, bloquea proactivamente comandos de egress de red (`curl`, `wget`, `nc`, `ssh`) cuando `allow_network=False`, neutraliza variables de entorno proxy hacia `127.0.0.1:0`, depura API keys del proceso hijo y ejecuta procesos tokenizados con límites estrictos de timeout.  
-   > **Nota sobre el Modelo de Amenazas:** `LocalProcessSandbox` endurece y restringe procesos locales a nivel de aplicación. No sustituye un hipervisor de virtualización a nivel de kernel, microVM (como Firecracker) o contenedor Linux (cgroups/namespaces/seccomp). Para despliegues multi-inquilino de código hostil o no confiable, se debe encapsular el ejecutor en contenedores o microVMs dedicadas.
+2. **Enforcement Criptográfico Basado en Capabilities (HMAC-SHA256 y Anti-Replay con Store Durable):**
+   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física criptográficamente ligada a nivel de runtime: exige obligatoriamente un `DecisionReceipt` firmado mediante **HMAC-SHA256**, no expirado (`expires_at`), con `status == ALLOW`, `action_hash == hash(action)` y `state_hash == hash(state)`. Invocaciones directas, firmas manipuladas, capabilities caducados o intentos de reutilización (*replay attacks*) son bloqueados inmediatamente por un almacén de nonces durable en SQLite (`SqliteNonceStore`) o memoria (`InMemoryNonceStore`) con poda automática por TTL (`prune_expired`), levantando `PolicyViolation` antes de tocar el sistema operativo.
+3. **Aislamiento en Contenedores y Sandboxing de Procesos ($\text{Policy Enforcement} \neq \text{Host Isolation}$):**
+   La ejecución física de herramientas del sistema (`run_command`, `read_file`, `edit_file`) no corre en el host con `shell=True`. Se delega en `SandboxAdapter`:
+   - `ContainerSandboxAdapter`: Confinamiento en contenedores OCI (Docker/Podman) con filesystem raíz de solo lectura (`--read-only`), aislamiento de red total (`--network=none`), límites de memoria/CPU (cgroups), supresión de privilegios (`--cap-drop=ALL`) y fallback ordenado a sandbox local.
+   - `LocalProcessSandbox`: Confina los accesos al workspace resolviendo enlaces simbólicos canónicos (`os.path.realpath`) para anular vectores de *symlink traversal* y *TOCTOU*, bloquea proactivamente comandos de egress de red (`curl`, `wget`, `nc`, `ssh`) cuando `allow_network=False`, neutraliza variables de entorno proxy hacia `127.0.0.1:0`, depura API keys del proceso hijo y ejecuta procesos tokenizados con límites estrictos de timeout.
+4. **Política Formal de Egress de Red y Defensa contra SSRF (`EgressPolicy`):**
+   Neutraliza vectores de fuga de credenciales o ataque a servicios internos bloqueando incondicionalmente interfaces de loopback (`127.0.0.1`, `localhost`), rangos privados RFC 1918 (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`) y metadatos cloud (`169.254.169.254`, `metadata.google.internal`), permitiendo únicamente dominios validados en modo `ALLOWLIST`.
+5. **Persistencia Durable de Estado y Auditoría Inmutable:**
+   - `SqliteStateStore`: Serialización transaccional de sesiones y checkpoints versionados en SQLite WAL.
+   - `PermissionManager`: Trazabilidad completa en disco mediante archivo de log de auditoría JSONL inmutable (`audit_log_path`) con marcas de tiempo y hashes criptográficos de cada aprobación humana.
 4. **La Indisponibilidad no Equivale a Neutralidad (Fail-Safe Estricto):**
    Si la red falla o el proveedor de inferencia semántica se cae, el sistema no asume un score neutro permisivo: aplica `FailSafePolicy` emitiendo `ABSTAIN` para acciones de bajo riesgo o `BLOCK` inmediato para acciones destructivas ($FalseAllowRate = 0.0\%$).
 5. **Erradicación de Alucinaciones en Herramientas de Observación:**

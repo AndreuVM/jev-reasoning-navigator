@@ -76,3 +76,155 @@ class InMemoryNonceStore(NonceStore):
     def __len__(self) -> int:
         with self._lock:
             return len(self._store)
+
+
+class SqliteNonceStore(NonceStore):
+    """Almacén durable y transaccional basado en SQLite para prevención de replay attacks.
+    
+    Persiste capabilities y nonces consumidos en disco, sobreviviendo a reinicios
+    del proceso y permitiendo sincronización concurrente entre múltiples procesos.
+    """
+
+    def __init__(self, db_path: str = ".jev_cache/nonces.db"):
+        import os
+        import sqlite3
+        from pathlib import Path
+
+        self.db_path = str(db_path)
+        if self.db_path != ":memory:":
+            os.makedirs(os.path.dirname(os.path.abspath(self.db_path)), exist_ok=True)
+            
+        self._lock = threading.Lock()
+        self._init_db()
+
+    def _get_connection(self):
+        import sqlite3
+        if self.db_path == ":memory:":
+            if not hasattr(self, "_mem_conn") or self._mem_conn is None:
+                self._mem_conn = sqlite3.connect(":memory:", check_same_thread=False)
+            return self._mem_conn
+        conn = sqlite3.connect(self.db_path, timeout=30.0)
+        conn.execute("PRAGMA journal_mode=WAL;")
+        conn.execute("PRAGMA synchronous=NORMAL;")
+        return conn
+
+    def _close_conn(self, conn) -> None:
+        if self.db_path != ":memory:":
+            conn.close()
+
+    def _init_db(self) -> None:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                with conn:
+                    conn.execute(
+                        """
+                        CREATE TABLE IF NOT EXISTS consumed_nonces (
+                            decision_id TEXT NOT NULL,
+                            nonce TEXT NOT NULL,
+                            expires_at TEXT,
+                            created_at TEXT NOT NULL,
+                            PRIMARY KEY (decision_id, nonce)
+                        );
+                        """
+                    )
+                    conn.execute(
+                        "CREATE INDEX IF NOT EXISTS idx_expires_at ON consumed_nonces (expires_at);"
+                    )
+            finally:
+                self._close_conn(conn)
+
+    def has_been_consumed(self, decision_id: str, nonce: str) -> bool:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute(
+                    "SELECT expires_at FROM consumed_nonces WHERE decision_id = ? AND nonce = ?",
+                    (decision_id, nonce),
+                )
+                row = cur.fetchone()
+                if not row:
+                    return False
+                
+                exp_str = row[0]
+                if exp_str:
+                    try:
+                        exp = datetime.fromisoformat(exp_str)
+                        if datetime.utcnow() > exp:
+                            # Ha expirado: podar y permitir
+                            with conn:
+                                cur.execute(
+                                    "DELETE FROM consumed_nonces WHERE decision_id = ? AND nonce = ?",
+                                    (decision_id, nonce),
+                                )
+                            return False
+                    except Exception:
+                        pass
+                return True
+            finally:
+                self._close_conn(conn)
+
+    def consume(self, decision_id: str, nonce: str, expires_at: Optional[datetime] = None) -> bool:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                # Verificar si ya existe y sigue activo
+                cur.execute(
+                    "SELECT expires_at FROM consumed_nonces WHERE decision_id = ? AND nonce = ?",
+                    (decision_id, nonce),
+                )
+                row = cur.fetchone()
+                now = datetime.utcnow()
+                if row:
+                    exp_str = row[0]
+                    if exp_str:
+                        try:
+                            exp = datetime.fromisoformat(exp_str)
+                            if now <= exp:
+                                return False  # Aún activo: rechazar replay
+                        except Exception:
+                            return False
+                    else:
+                        return False  # Sin expiración: permanentemente consumido
+
+                now_str = now.isoformat()
+                exp_str = expires_at.isoformat() if expires_at else None
+                with conn:
+                    cur.execute(
+                        """
+                        INSERT OR REPLACE INTO consumed_nonces (decision_id, nonce, expires_at, created_at)
+                        VALUES (?, ?, ?, ?)
+                        """,
+                        (decision_id, nonce, exp_str, now_str),
+                    )
+                return True
+            finally:
+                self._close_conn(conn)
+
+    def prune_expired(self) -> int:
+        now_str = datetime.utcnow().isoformat()
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                with conn:
+                    cur = conn.cursor()
+                    cur.execute(
+                        "DELETE FROM consumed_nonces WHERE expires_at IS NOT NULL AND expires_at < ?",
+                        (now_str,),
+                    )
+                    return cur.rowcount
+            finally:
+                self._close_conn(conn)
+
+    def __len__(self) -> int:
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT COUNT(*) FROM consumed_nonces")
+                row = cur.fetchone()
+                return row[0] if row else 0
+            finally:
+                self._close_conn(conn)
