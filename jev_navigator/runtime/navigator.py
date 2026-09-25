@@ -67,6 +67,13 @@ class Navigator:
         self.state: Optional[SessionState] = None
         self.audit_receipts: List[DecisionReceipt] = []
 
+    @property
+    def router_telemetry(self) -> Optional[Any]:
+        """Devuelve la telemetría acumulada de enrutamiento si el proveedor es un ConfidenceAwareRouter."""
+        if hasattr(self.provider, "get_telemetry"):
+            return self.provider.get_telemetry()
+        return None
+
     def start_session(self, goal: Goal, session_id: Optional[str] = None) -> SessionState:
         """Inicializa una nueva sesión de supervisión formal con checkpoint génesis."""
         sid = session_id or f"sess_{len(self.audit_receipts)}"

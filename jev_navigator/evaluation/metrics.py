@@ -55,9 +55,16 @@ class EvaluationMetrics(BaseModel):
     confusion_matrix: Dict[str, Dict[str, int]] = Field(default_factory=dict)
     class_metrics: Dict[str, Dict[str, float]] = Field(default_factory=dict)
 
+    # Métricas de Calibración y Routing (Fase 3 / v0.4)
+    ece: Optional[float] = None
+    brier_score: Optional[float] = None
+    local_decision_rate: Optional[float] = None
+    escalation_rate: Optional[float] = None
+    provider_disagreement_rate: Optional[float] = None
+
     def to_summary_dict(self) -> Dict[str, Any]:
         """Devuelve un resumen plano legible para reportes y tablas."""
-        return {
+        summary = {
             "Total Escenarios": self.total_scenarios,
             "Exactitud (Accuracy)": f"{self.accuracy * 100:.1f}%",
             "F1-Score": f"{self.f1_score:.3f}",
@@ -76,6 +83,17 @@ class EvaluationMetrics(BaseModel):
             "Latencia p95": f"{self.latency_p95_ms:.2f} ms",
             "Latencia Media": f"{self.latency_mean_ms:.2f} ms",
         }
+        if self.ece is not None:
+            summary["ECE (Expected Calibration Error)"] = f"{self.ece:.4f}"
+        if self.brier_score is not None:
+            summary["Brier Score"] = f"{self.brier_score:.4f}"
+        if self.local_decision_rate is not None:
+            summary["Tasa Decisión Local (System-1)"] = f"{self.local_decision_rate * 100:.1f}%"
+        if self.escalation_rate is not None:
+            summary["Tasa Escalado (System-2)"] = f"{self.escalation_rate * 100:.1f}%"
+        if self.provider_disagreement_rate is not None:
+            summary["Tasa Desacuerdo Proveedores"] = f"{self.provider_disagreement_rate * 100:.1f}%"
+        return summary
 
 
 class MetricsCalculator:
@@ -278,6 +296,47 @@ class MetricsCalculator:
         p99 = cls._percentile(latencies, 0.99)
         mean_lat = sum(latencies) / len(latencies) if latencies else 0.0
 
+        # Calibración y métricas de routing (Fase 3)
+        confidences = []
+        labels = []
+        local_decisions = 0
+        escalations = 0
+        disagreements = 0
+        dual_evaluations = 0
+
+        for r in results:
+            exp_val = r["expected_status"].value if hasattr(r["expected_status"], "value") else str(r["expected_status"])
+            act_val = r["actual_status"].value if hasattr(r["actual_status"], "value") else str(r["actual_status"])
+            is_corr = (act_val == exp_val)
+
+            if "confidence" in r and r["confidence"] is not None:
+                confidences.append(float(r["confidence"]))
+                labels.append(is_corr)
+
+            routed = r.get("routed_to")
+            if routed == "primary":
+                local_decisions += 1
+            elif routed == "secondary":
+                escalations += 1
+
+            if "disagreement" in r or "disagreement_with_primary" in r:
+                dual_evaluations += 1
+                if r.get("disagreement") or r.get("disagreement_with_primary"):
+                    disagreements += 1
+
+        ece_val: Optional[float] = None
+        brier_val: Optional[float] = None
+        if confidences and len(confidences) == len(labels):
+            from jev_navigator.evaluation.calibration import CalibrationCalculator
+            cal = CalibrationCalculator.compute_ece(confidences, labels)
+            ece_val = cal.ece
+            brier_val = cal.brier_score
+
+        routing_total = local_decisions + escalations
+        local_rate = round(local_decisions / routing_total, 4) if routing_total > 0 else None
+        escalate_rate = round(escalations / routing_total, 4) if routing_total > 0 else None
+        disagree_rate = round(disagreements / dual_evaluations, 4) if dual_evaluations > 0 else None
+
         return EvaluationMetrics(
             total_scenarios=total,
             correct_decisions=correct,
@@ -303,6 +362,11 @@ class MetricsCalculator:
             latency_mean_ms=round(mean_lat, 2),
             confusion_matrix=matrix,
             class_metrics=class_metrics,
+            ece=ece_val,
+            brier_score=brier_val,
+            local_decision_rate=local_rate,
+            escalation_rate=escalate_rate,
+            provider_disagreement_rate=disagree_rate,
         )
 
 

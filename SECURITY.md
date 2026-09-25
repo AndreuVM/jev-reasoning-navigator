@@ -4,7 +4,8 @@
 
 | Versión | Soportada | Estado de Mantenimiento |
 | :--- | :---: | :--- |
-| **0.3.x (v0.3-beta)** | ✅ Sí | Versión activa principal: Enforcement formal, Sqlite stores durables, ContainerSandbox, EgressPolicy estricta y suite de tests de seguridad dedicada. |
+| **0.4.x (v0.4-experimental)** | ✅ Sí | Versión activa principal: Confidence-Aware Cascade Routing, calibración ECE/Brier, selective risk y dual-uncertainty gating. |
+| **0.3.x (v0.3-beta)** | ✅ Sí | Versión estable: Enforcement formal, Sqlite stores durables, ContainerSandbox, EgressPolicy estricta y suite de tests de seguridad dedicada. |
 | **0.2.x (v0.2.2)** | ✅ Sí | Versión previa estable con HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
 | 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2+. |
 

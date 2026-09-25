@@ -1,21 +1,21 @@
-# JEV Reasoning Navigator v0.3.0b1 (v0.3-beta)
+# JEV Reasoning Navigator v0.4.0a1 (v0.4-experimental)
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-176%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.3--beta-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-191%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.4--experimental-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
 [![Security](https://img.shields.io/badge/security-sandbox%20%26%20container%20hardened-green.svg)]()
-[![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20Replay-purple.svg)]()
+[![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20CascadeRouter-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.3-beta (v0.3.0b1)** a partir del cierre completo de la **Fase 2 (Enforcement & Hardening)**: capacidades criptográficas HMAC-SHA256, almacenes durables SQLite (`SqliteNonceStore`, `SqliteStateStore`), aislamiento de contenedor OCI/Docker (`ContainerSandboxAdapter`), política formal de egress de red y defensa contra SSRF/metadatos cloud (`EgressPolicy`), registro auditable de autorizaciones humanas en disco y una suite de seguridad dedicada de más de 30 tests adversariales (`tests/security/`), el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
-$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Sandbox/Container (SecureExecutor)}$$
+Evolucionado en la **v0.4-experimental (v0.4.0a1)** a partir de la implementación de la **Fase 3 (Confidence-Aware Routing & Calibración)** según el paper *«JEV-as-a-Judge: Accept When Confident, Escalate When Unsure»* (arXiv:2609.26550): enrutador en cascada de dos niveles (`ConfidenceAwareRouter`), vía rápida local (System-1 / LAYA), escalado dinámico a supervisores superiores (System-2 / TypeSafe), umbrales adaptativos por nivel de riesgo operacional, detección de incertidumbre dual con abstención formal (`ABSTAIN`), y análisis formal de calibración probabilística (ECE, MCE, Brier Score, curvas de Cobertura vs Riesgo Selectivo y AURC).
+$$\text{Semantic Judgment (JEV/LAYA Router)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Sandbox/Container (SecureExecutor)}$$
 
 ---
 
-## 1. Axiomas y Principios Arquitectónicos de v0.3-beta
+## 1. Axiomas y Principios Arquitectónicos de v0.4
 
 1. **Juicio Semántico $\neq$ Política Operacional:**
    Una acción puede tener una probabilidad semántica de éxito elevada ($JEV = 0.95$) y ser al mismo tiempo operacionalmente inadmisible ($Risk = \text{CRITICAL}$, ej. `rm -rf /` o un archivo sensible `.env`). JEV emite juicio probabilístico; la `PolicyEngine` emite la decisión operativa (`ALLOW`, `BLOCK`, `REPLAN`, `ABSTAIN`).
