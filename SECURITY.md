@@ -6,10 +6,8 @@
 
 | Versión | Soportada | Estado de Mantenimiento |
 | :--- | :---: | :--- |
-| **0.4.x (v0.4-experimental)** | ✅ Sí | Versión activa principal: Confidence-Aware Cascade Routing, calibración ECE/Brier, selective risk y dual-uncertainty gating. |
-| **0.3.x (v0.3-beta)** | ✅ Sí | Versión estable: Enforcement formal, Sqlite stores durables, ContainerSandbox, EgressPolicy estricta y suite de tests de seguridad dedicada. |
-| **0.2.x (v0.2.2)** | ✅ Sí | Versión previa estable con HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
-| 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2+. |
+| **0.4.x (v0.4.0)** | ✅ Sí | Versión activa y recomendada: Confidence-Aware Cascade Routing, System-1 LAYA, calibración ECE/Brier, selective risk y dual-uncertainty gating. |
+| < 0.4.0 | ❌ No | Deprecada. Se recomienda actualizar a v0.4.0. |
 
 ---
 
@@ -28,9 +26,9 @@ $$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \
 
 ### Principios Fundamentales:
 1. **Separación de Responsabilidades y Delimitación de Host:**
-   $$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Physical Execution (SecureExecutor)}$$
+   $$\text{Semantic Judgment (JEV/LAYA)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Physical Execution (SecureExecutor)}$$
    $$\text{Policy Enforcement} \neq \text{Host Isolation}$$
-   El runtime garantiza que ninguna política de seguridad sea evadida a nivel de aplicación. Para aislamiento a nivel de sistema operativo y kernel, el framework soporta:
+   El runtime impone verificación determinista y denegación por defecto (fail-safe) a nivel de aplicación. Para contención a nivel de sistema operativo y kernel, el framework soporta:
    - `ContainerSandboxAdapter`: Ejecución contenida en contenedores OCI (Docker/Podman) con `--read-only`, aislamiento de red (`--network=none`), límites estrictos de CPU/memoria y descarte de privilegios (`--cap-drop=ALL`).
    - `LocalProcessSandbox`: Confinamiento local de procesos hijos con desreferenciación real de symlinks, purga de entorno y fallback ordenado.
 2. **Capabilities Ligados Criptográficamente (DecisionReceipt con HMAC-SHA256) y NonceStore Durable:**
@@ -39,7 +37,7 @@ $$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \
    - `action_hash == SHA256(action)`
    - `state_hash == SHA256(state)`
    - `session_id == active_session_id`
-   - `signature == HMAC-SHA256(secret_key, payload)` verificado de forma inmune a ataques de temporización (`hmac.compare_digest`).
+   - `signature == HMAC-SHA256(secret_key, payload)` verificado mediante comparación en tiempo constante (`hmac.compare_digest`) para mitigar ataques de temporización.
    - `is_expired() == False` validado contra la ventana de validez temporal (`expires_at` / TTL).
    - `nonce` no consumido previamente verificado mediante `SqliteNonceStore` persistente en disco o `InMemoryNonceStore`, con poda automática de nonces expirados (`prune_expired`). Previene ataques de repetición a través de reinicios del proceso ejecutor.
 3. **Persistencia Durable de Estados y Auditoría de Permisos:**

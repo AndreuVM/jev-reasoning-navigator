@@ -262,7 +262,7 @@ def run_benchmark_cli(
     count: Optional[int] = None,
     output_file: Optional[str] = None,
 ) -> None:
-    """Ejecuta y formatea en consola el benchmark formal de supervisión (v0.3-alpha)."""
+    """Ejecuta y formatea en consola el benchmark formal de supervisión (v0.4.0)."""
     from praxeon.evaluation import BenchmarkRunner, ScenarioCatalog
     from praxeon.evaluation.metrics import compute_navigator_economic_value
     from praxeon.runtime import Navigator, SecureExecutor
@@ -286,7 +286,7 @@ def run_benchmark_cli(
     else:
         scenarios = ScenarioCatalog.get_extended_scenarios()
 
-    console.print(f"\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator ({len(scenarios)} escenarios)[/]...\n")
+    console.print(f"\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark PRAXEON ({len(scenarios)} escenarios)[/]...\n")
 
     if compare_providers:
         comp = runner.run_provider_comparison(scenarios=scenarios)
@@ -299,7 +299,6 @@ def run_benchmark_cli(
         table.add_row("Tasa de Discrepancia Decisional", f"[bold {'red' if comp.disagreement_count > 0 else 'green'}]{comp.disagreement_rate * 100:.1f}%[/] ({comp.disagreement_count})")
         table.add_row(f"Latencia Media ({comp.provider_a_name})", f"{comp.provider_a_avg_latency_ms:.2f} ms (p95: {comp.provider_a_p95_latency_ms:.2f} ms)")
         table.add_row(f"Latencia Media ({comp.provider_b_name})", f"{comp.provider_b_avg_latency_ms:.2f} ms (p95: {comp.provider_b_p95_latency_ms:.2f} ms)")
-
         console.print(table)
         if comp.disagreements:
             console.print(f"\n[bold yellow]Detalle de Discrepancias ({len(comp.disagreements)}):[/]")
@@ -309,10 +308,10 @@ def run_benchmark_cli(
 
     if compare_v1:
         comp = runner.compare_v01_vs_v02(scenarios)
-        table = Table(title="🛡️ [bold white]Comparativa de Seguridad y Calidad: v0.1 vs v0.2[/]", border_style="cyan")
+        table = Table(title="🛡️ [bold white]Comparativa de Seguridad y Calidad: Baseline Sin Supervisor vs PRAXEON v0.4[/]", border_style="cyan")
         table.add_column("Métrica", style="bold yellow")
-        table.add_column("v0.1 (Heurístico / Fallback Permisivo)", style="red")
-        table.add_column("v0.2 (Arquitectura Desacoplada / Fail-Safe)", style="green")
+        table.add_column("Baseline (Sin Supervisor / Permisivo)", style="red")
+        table.add_column("PRAXEON v0.4 (Full Architecture)", style="green")
 
         v1_data = comp["v0.1"]
         v2_data = comp["v0.2"]
@@ -435,7 +434,7 @@ def main() -> None:
     # Subcomando benchmark
     bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones")
     bench_parser.add_argument("--ablation", action="store_true", help="Ejecutar el estudio formal de ablaciones de las 5 capas")
-    bench_parser.add_argument("--compare-v1", action="store_true", help="Comparar métricas y seguridad de v0.1 vs v0.2")
+    bench_parser.add_argument("--compare-v1", "--compare-baseline", dest="compare_v1", action="store_true", help="Comparar métricas de seguridad frente a baseline sin supervisor")
     bench_parser.add_argument("--compare-providers", action="store_true", help="Comparar concordancia y latencia entre proveedores (JEV vs LAYA)")
     bench_parser.add_argument("--provider", type=str, default="replay", choices=["replay", "laya", "typesafe"], help="Proveedor de razonamiento a evaluar")
     bench_parser.add_argument("--count", type=int, default=None, help="Número de escenarios sintéticos a evaluar (ej. 1000 para dataset masivo)")

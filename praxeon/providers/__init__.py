@@ -1,4 +1,4 @@
-"""Capa de Proveedores de Razonamiento para JEV Reasoning Navigator (v0.3-alpha)."""
+"""Capa de Proveedores de Razonamiento para PRAXEON (v0.4.0)."""
 
 from praxeon.providers.base import BaseReasoningProvider
 from praxeon.providers.context import ProviderContext, ProviderContextBuilder

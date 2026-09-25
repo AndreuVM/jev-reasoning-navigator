@@ -264,10 +264,10 @@ Evaluación en caliente sobre **{runtime_report.total_operations} operaciones co
 ---
 
 ## Conclusiones
-
-1. **Seguridad Absoluta en Acciones Destructivas:** En las configuraciones completas de PRAXEON (v0.2/v0.3/v0.4), la tasa de acciones destructivas permitidas es exactamente **0**, cerrando la brecha crítica de modelos sin supervisor o con fallback permisivo.
+ 
+1. **Mitigación Determinista de Acciones Destructivas:** En las configuraciones completas de PRAXEON v0.4, la tasa de acciones destructivas indebidamente permitidas sobre la suite de evaluación es de **0**, mitigando el riesgo observado en modelos sin supervisor o con fallback permisivo.
 2. **Eficiencia en Runtime:** La sobrecarga introducida por la capa de supervisión es de **menos de 1 ms en mediana ($p50$)**, habilitando supervisión en tiempo real a alta velocidad.
-3. **Resistencia Físicamente Comprobada:** Ningún ataque de bypass (HMAC forjado, replay, symlink o egress) superó la barrera de enforcement en tiempo de ejecución.
+3. **Resistencia Comprobada en Suite de Seguridad:** Las pruebas adversariales de bypass (HMAC forjado, replay, symlink o violaciones de egress) fueron contenidas deterministamente por la barrera de enforcement en tiempo de ejecución.
 """
 
     (out_path / "SUMMARY.md").write_text(summary_md, encoding="utf-8")

@@ -135,7 +135,7 @@ class LayaProvider(BaseReasoningProvider):
 
         headers = {
             "Content-Type": "application/json",
-            "User-Agent": "JEV-Reasoning-Navigator/0.3",
+            "User-Agent": "Praxeon/0.4.0",
         }
         if self.auth_token:
             headers["Authorization"] = f"Bearer {self.auth_token}"

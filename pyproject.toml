@@ -5,6 +5,12 @@ description = "Runtime supervision for autonomous AI agents"
 
 readme = "README.md"
 requires-python = ">=3.11"
+
+[project.urls]
+Homepage = "https://github.com/AndreuVM/praxeon"
+Repository = "https://github.com/AndreuVM/praxeon.git"
+Issues = "https://github.com/AndreuVM/praxeon/issues"
+
 dependencies = [
     "google-genai>=2.24.0",
     "networkx>=3.6.1",
