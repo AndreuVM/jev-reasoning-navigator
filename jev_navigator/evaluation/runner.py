@@ -52,6 +52,25 @@ class BenchmarkReport(BaseModel):
     results: List[ScenarioResult]
 
 
+class ProviderComparisonReport(BaseModel):
+    """Informe comparativo formal entre proveedores de razonamiento semántico (JEV vs LAYA vs Replay)."""
+    model_config = ConfigDict(frozen=True)
+
+    timestamp: float = Field(default_factory=time.time)
+    total_scenarios: int
+    agreement_count: int
+    agreement_rate: float
+    disagreement_count: int
+    disagreement_rate: float
+    provider_a_name: str
+    provider_b_name: str
+    provider_a_avg_latency_ms: float
+    provider_b_avg_latency_ms: float
+    provider_a_p95_latency_ms: float
+    provider_b_p95_latency_ms: float
+    disagreements: List[Dict[str, Any]] = Field(default_factory=list)
+
+
 class BenchmarkRunner:
     """Ejecuta suites de escenarios contra el Navigator y realiza estudios de ablación."""
 
@@ -307,3 +326,76 @@ class BenchmarkRunner:
             "false_allow_reduction": f"{(v01_proxy.false_allow_rate - v02_full.false_allow_rate) * 100:.1f}% mejora",
             "critical_safety_gap_closed": v02_full.destructive_false_allow_count == 0,
         }
+
+    def run_provider_comparison(
+        self,
+        scenarios: Optional[List[BenchmarkScenario]] = None,
+        provider_a: Optional[Any] = None,
+        provider_b: Optional[Any] = None,
+    ) -> ProviderComparisonReport:
+        """Compara empíricamente la concordancia decisional, latencia y telemetría entre dos proveedores."""
+        from jev_navigator.providers.laya import LayaProvider
+
+        target_scenarios = scenarios or ScenarioCatalog.get_extended_scenarios()
+        p_a = provider_a or ReplayProvider(default_scenario="safe_read")
+        p_b = provider_b or LayaProvider(backend="simulated")
+
+        agreements = 0
+        disagreements = 0
+        latencies_a: List[float] = []
+        latencies_b: List[float] = []
+        disagreement_details: List[Dict[str, Any]] = []
+
+        for sc in target_scenarios:
+            st = SessionState(session_id=f"cmp_{sc.scenario_id}", goal=sc.goal)
+            for ev in sc.initial_evidence:
+                st.add_evidence(ev)
+
+            # Provider A
+            t0 = time.perf_counter()
+            if isinstance(p_a, ReplayProvider):
+                p_a.override_for_action(sc.candidate_action.id, sc.simulated_assessment)
+            res_a = p_a.evaluate(st, [sc.candidate_action])[0]
+            lat_a = (time.perf_counter() - t0) * 1000.0
+            latencies_a.append(lat_a)
+
+            # Provider B
+            t0 = time.perf_counter()
+            res_b = p_b.evaluate(st, [sc.candidate_action])[0]
+            lat_b = (time.perf_counter() - t0) * 1000.0
+            latencies_b.append(lat_b)
+
+            loop_a = (res_a.loop_probability or 0.0) >= 0.60
+            loop_b = (res_b.loop_probability or 0.0) >= 0.60
+            ground_a = (res_a.grounded_probability or 1.0) <= 0.35
+            ground_b = (res_b.grounded_probability or 1.0) <= 0.35
+
+            if loop_a == loop_b and ground_a == ground_b and res_a.available == res_b.available:
+                agreements += 1
+            else:
+                disagreements += 1
+                disagreement_details.append({
+                    "scenario_id": sc.scenario_id,
+                    "provider_a": {"loop": res_a.loop_probability, "grounded": res_a.grounded_probability},
+                    "provider_b": {"loop": res_b.loop_probability, "grounded": res_b.grounded_probability},
+                })
+
+        total = len(target_scenarios)
+        sorted_a = sorted(latencies_a)
+        sorted_b = sorted(latencies_b)
+        idx_95 = int(total * 0.95) if total > 0 else 0
+
+        return ProviderComparisonReport(
+            total_scenarios=total,
+            agreement_count=agreements,
+            agreement_rate=round(agreements / max(1, total), 3),
+            disagreement_count=disagreements,
+            disagreement_rate=round(disagreements / max(1, total), 3),
+            provider_a_name=getattr(p_a, "model_name", "ReplayProvider"),
+            provider_b_name=getattr(p_b, "model_name", "LayaProvider"),
+            provider_a_avg_latency_ms=round(sum(latencies_a) / max(1, total), 2),
+            provider_b_avg_latency_ms=round(sum(latencies_b) / max(1, total), 2),
+            provider_a_p95_latency_ms=round(sorted_a[min(idx_95, len(sorted_a) - 1)] if sorted_a else 0.0, 2),
+            provider_b_p95_latency_ms=round(sorted_b[min(idx_95, len(sorted_b) - 1)] if sorted_b else 0.0, 2),
+            disagreements=disagreement_details,
+        )

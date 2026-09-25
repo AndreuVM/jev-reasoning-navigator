@@ -6,13 +6,14 @@ from jev_navigator.evaluation.metrics import (
     compute_navigator_economic_value,
 )
 from jev_navigator.evaluation.reports import ReportGenerator
-from jev_navigator.evaluation.runner import BenchmarkRunner
+from jev_navigator.evaluation.runner import BenchmarkRunner, ProviderComparisonReport
 from jev_navigator.evaluation.scenarios import BenchmarkScenario, ScenarioCatalog
 
 __all__ = [
     "BenchmarkScenario",
     "ScenarioCatalog",
     "BenchmarkRunner",
+    "ProviderComparisonReport",
     "EvaluationMetrics",
     "MetricsCalculator",
     "ReportGenerator",

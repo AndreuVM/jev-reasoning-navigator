@@ -38,6 +38,7 @@ class PolicyEngine:
         permission_manager: Optional[PermissionManager] = None,
         loop_threshold: float = 0.65,
         min_grounded_threshold: float = 0.35,
+        min_confidence_threshold: float = 0.40,
         secret_key: Optional[str] = None,
         receipt_ttl_seconds: float = 60.0,
     ):
@@ -46,6 +47,7 @@ class PolicyEngine:
         self.permission_manager = permission_manager or PermissionManager(registry=self.registry)
         self.loop_threshold = loop_threshold
         self.min_grounded_threshold = min_grounded_threshold
+        self.min_confidence_threshold = min_confidence_threshold
         self.secret_key = secret_key or secrets.token_hex(32)
         self.receipt_ttl_seconds = receipt_ttl_seconds
 
@@ -85,14 +87,13 @@ class PolicyEngine:
             reason_codes.append("UNKNOWN_TOOL_NOT_REGISTERED")
 
         # 3. Verificación formal de evidencia requerida (Groundedness estricto)
-        elif action.requires_evidence:
+        elif action.requires_evidence and any(req.lower().strip() not in evidence_claims for req in action.requires_evidence):
             missing_evidence = [
                 req for req in action.requires_evidence
                 if req.lower().strip() not in evidence_claims
             ]
-            if missing_evidence:
-                status = DecisionStatus.REPLAN
-                reason_codes.append(f"MISSING_REQUIRED_EVIDENCE: {', '.join(missing_evidence)}")
+            status = DecisionStatus.REPLAN
+            reason_codes.append(f"MISSING_REQUIRED_EVIDENCE: {', '.join(missing_evidence)}")
 
         # 3.5. Verificación formal de completitud ante intentos de finish
         elif completion_assessment is not None and not getattr(completion_assessment, "is_complete", True):
@@ -114,10 +115,20 @@ class PolicyEngine:
             else:
                 reason_codes.append("PROVIDER_UNAVAILABLE_FAILSAFE_ABSTAIN")
 
-        # 5. Evaluación semántica probabilística de JEV (si está disponible)
+        # 5. Evaluación semántica probabilística de JEV / LAYA (si está disponible)
         elif provider_assessment is not None:
-            # Detección de bucle o degradación cíclica
+            # Gating de confianza según JEV-as-a-Judge: juicios con baja confianza escalan a ABSTAIN
             if (
+                provider_assessment.confidence is not None
+                and provider_assessment.confidence < self.min_confidence_threshold
+            ):
+                status = DecisionStatus.ABSTAIN
+                reason_codes.append(
+                    f"LOW_PROVIDER_CONFIDENCE_ESCALATE ({provider_assessment.confidence:.2f} < {self.min_confidence_threshold:.2f})"
+                )
+
+            # Detección de bucle o degradación cíclica
+            elif (
                 provider_assessment.loop_probability is not None
                 and provider_assessment.loop_probability >= self.loop_threshold
             ):

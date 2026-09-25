@@ -4,8 +4,9 @@
 
 | Versión | Soportada | Estado de Mantenimiento |
 | :--- | :---: | :--- |
-| **0.2.x (v0.2.2)** | ✅ Sí | Versión activa principal con enforcement formal, HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
-| 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2. |
+| **0.3.x (v0.3-alpha)** | ✅ Sí | Versión activa principal: Integración LAYA System-1, ProviderContextBuilder, escalado por confianza. |
+| **0.2.x (v0.2.2)** | ✅ Sí | Versión estable previa con enforcement formal, HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
+| 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2+. |
 
 ---
 

@@ -257,20 +257,55 @@ def simulate_trace_execution(file_path: str, config: Optional[JEVConfig] = None)
 def run_benchmark_cli(
     ablation: bool = False,
     compare_v1: bool = False,
+    compare_providers: bool = False,
+    provider_name: str = "replay",
     count: Optional[int] = None,
     output_file: Optional[str] = None,
 ) -> None:
-    """Ejecuta y formatea en consola el benchmark formal de supervisión v0.2."""
+    """Ejecuta y formatea en consola el benchmark formal de supervisión (v0.3-alpha)."""
     from jev_navigator.evaluation import BenchmarkRunner, ScenarioCatalog
     from jev_navigator.evaluation.metrics import compute_navigator_economic_value
+    from jev_navigator.runtime import Navigator, SecureExecutor
+    from jev_navigator.providers.replay import ReplayProvider
+    from jev_navigator.providers.laya import LayaProvider
+    from jev_navigator.providers.typesafe import TypeSafeAdapter
 
-    runner = BenchmarkRunner()
+    if provider_name == "laya":
+        prov = LayaProvider(backend="simulated")
+        nav = Navigator(provider=prov, executor=SecureExecutor(dry_run=True))
+        runner = BenchmarkRunner(navigator=nav)
+    elif provider_name == "typesafe":
+        prov = TypeSafeAdapter(api_key=None)
+        nav = Navigator(provider=prov, executor=SecureExecutor(dry_run=True))
+        runner = BenchmarkRunner(navigator=nav)
+    else:
+        runner = BenchmarkRunner()
+
     if count and count > 0:
         scenarios = ScenarioCatalog.generate_large_scale_dataset(count=count)
     else:
         scenarios = ScenarioCatalog.get_extended_scenarios()
 
-    console.print(f"\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator v0.2 ({len(scenarios)} escenarios)[/]...\n")
+    console.print(f"\n🔬 [bold cyan]Iniciando Suite Formal de Benchmark JEV Reasoning Navigator ({len(scenarios)} escenarios)[/]...\n")
+
+    if compare_providers:
+        comp = runner.run_provider_comparison(scenarios=scenarios)
+        table = Table(title=f"⚖️ [bold white]Comparativa de Proveedores: {comp.provider_a_name} vs {comp.provider_b_name}[/]", border_style="green")
+        table.add_column("Métrica de Concordancia y Eficiencia", style="bold yellow")
+        table.add_column("Valor Evaluado", style="cyan")
+
+        table.add_row("Total de Escenarios Evaluados", str(comp.total_scenarios))
+        table.add_row("Tasa de Concordancia (Agreement Rate)", f"[bold green]{comp.agreement_rate * 100:.1f}%[/] ({comp.agreement_count}/{comp.total_scenarios})")
+        table.add_row("Tasa de Discrepancia Decisional", f"[bold {'red' if comp.disagreement_count > 0 else 'green'}]{comp.disagreement_rate * 100:.1f}%[/] ({comp.disagreement_count})")
+        table.add_row(f"Latencia Media ({comp.provider_a_name})", f"{comp.provider_a_avg_latency_ms:.2f} ms (p95: {comp.provider_a_p95_latency_ms:.2f} ms)")
+        table.add_row(f"Latencia Media ({comp.provider_b_name})", f"{comp.provider_b_avg_latency_ms:.2f} ms (p95: {comp.provider_b_p95_latency_ms:.2f} ms)")
+
+        console.print(table)
+        if comp.disagreements:
+            console.print(f"\n[bold yellow]Detalle de Discrepancias ({len(comp.disagreements)}):[/]")
+            for d in comp.disagreements[:5]:
+                console.print(f" - [bold cyan]{d['scenario_id']}:[/] JEV loop={d['provider_a']['loop']} vs LAYA loop={d['provider_b']['loop']}")
+        return
 
     if compare_v1:
         comp = runner.compare_v01_vs_v02(scenarios)
@@ -398,9 +433,11 @@ def main() -> None:
     dash_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir inmediatamente sin modo interactivo continuo")
 
     # Subcomando benchmark
-    bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones v0.2")
+    bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones")
     bench_parser.add_argument("--ablation", action="store_true", help="Ejecutar el estudio formal de ablaciones de las 5 capas")
     bench_parser.add_argument("--compare-v1", action="store_true", help="Comparar métricas y seguridad de v0.1 vs v0.2")
+    bench_parser.add_argument("--compare-providers", action="store_true", help="Comparar concordancia y latencia entre proveedores (JEV vs LAYA)")
+    bench_parser.add_argument("--provider", type=str, default="replay", choices=["replay", "laya", "typesafe"], help="Proveedor de razonamiento a evaluar")
     bench_parser.add_argument("--count", type=int, default=None, help="Número de escenarios sintéticos a evaluar (ej. 1000 para dataset masivo)")
     bench_parser.add_argument("--output", type=str, default=None, help="Ruta para exportar el reporte en JSON")
 
@@ -436,6 +473,8 @@ def main() -> None:
         run_benchmark_cli(
             ablation=getattr(args, "ablation", False),
             compare_v1=getattr(args, "compare_v1", False),
+            compare_providers=getattr(args, "compare_providers", False),
+            provider_name=getattr(args, "provider", "replay"),
             count=getattr(args, "count", None),
             output_file=getattr(args, "output", None),
         )

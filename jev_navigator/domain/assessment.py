@@ -1,12 +1,12 @@
 """Entidades de evaluación semántica de proveedores y análisis de riesgo operacional."""
 
 from enum import Enum
-from typing import List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProviderAssessment(BaseModel):
-    """Juicio semántico multidimensional emitido por un ReasoningProvider (TypeSafe AI o Replay)."""
+    """Juicio semántico multidimensional emitido por un ReasoningProvider (TypeSafe AI, LAYA o Replay)."""
     model_config = ConfigDict(frozen=True)
 
     provider: str
@@ -20,6 +20,7 @@ class ProviderAssessment(BaseModel):
     analytical_jev: Optional[float] = None
     failure_reason: Optional[str] = None
     reason_codes: List[str] = Field(default_factory=list)
+    metadata: Dict[str, Any] = Field(default_factory=dict)
 
 
 class RiskLevel(str, Enum):

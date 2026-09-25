@@ -1,16 +1,16 @@
-# JEV Reasoning Navigator v0.2.2
+# JEV Reasoning Navigator v0.3.0a1 (v0.3-alpha)
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.2.2-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-146%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.3--alpha-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
 [![Security](https://img.shields.io/badge/security-sandbox%20hardened-green.svg)]()
-[![TypeSafe AI](https://img.shields.io/badge/engine-TypeSafe%20System%20One-purple.svg)]()
+[![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20Replay-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.2.2** a partir de rigurosas auditorías técnicas externas y el cierre de deuda técnica de la Fase 0, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
+Evolucionado en la **v0.3-alpha (v0.3.0a1)** a partir de la integración del proveedor **LAYA** (primitivas System-1 `choice`, `score`, `noul`), el estandarizado **`ProviderContextBuilder`**, escalado por baja confianza (*JEV-as-a-Judge: Accept When Confident, Escalate When Unsure*), y el cierre de deuda técnica de la Fase 0, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
 $$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Process Sandbox (SecureExecutor)}$$
 
 ---
@@ -34,12 +34,16 @@ $$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \
    `PermissionManager` expide tickets auditables `HumanApprovalTicket` vinculados estrictamente al `action_hash` exacto y dotados de caducidad temporal (`expires_at`). Cualquier manipulación de argumentos invalida la confirmación de inmediato.
 8. **Backtracking Formal y Recuperación de Estado:**
    `CheckpointManager` captura snapshots canónicos SHA-256 de `SessionState`. Ante degradación o bucles, restaura el estado seguro, invalida los pasos descendientes y bloquea físicamente la herramienta o transición culpable.
+9. **Normalización y Acotación Estricta de Contexto (`ProviderContextBuilder`):**
+   La construcción de inputs para los modelos semánticos no concatena texto libre sin límites. `ProviderContextBuilder` impone ventanas temporales acotadas de pasos históricos (`max_history_steps`), budgets estrictos de tokens (`token_budget`), truncamiento canónico de salidas voluminosas de herramientas (`max_observation_chars`) con señalización explícita (`truncated: bool`), generando serializaciones tipadas independientes para LAYA y TypeSafe AI.
+10. **Supervisión Selectiva y Escalado por Confianza (*JEV-as-a-Judge: Accept When Confident, Escalate When Unsure*):**
+   La inferencia probabilística del proveedor no es una decisión ciega: si el proveedor emite una evaluación con baja confianza ($\text{confidence} < 0.40$), el motor de política no otorga permiso ni arriesga ejecuciones dudosas, sino que escala deterministamente a `DecisionStatus.ABSTAIN` con código `LOW_PROVIDER_CONFIDENCE_ESCALATE` para requerir supervisión humana o intervención guiada.
 
 ---
 
-## 2. Flujo de Ejecución Normativo v0.2.1
+## 2. Flujo de Ejecución Normativo v0.3-alpha
 
-$$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{JEV Provider} \to \text{Policy} \to \text{Capability Receipt} \to \text{SecureExecutor} \to \text{Sandbox} \to \text{Observation}$$
+$$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{ProviderContext} \to \text{Semantic Provider (LAYA / TypeSafe)} \to \text{Policy} \to \text{Capability Receipt} \to \text{SecureExecutor} \to \text{Sandbox} \to \text{Observation}$$
 
 ```
                 +---------------------------------------+
@@ -100,7 +104,7 @@ $$\text{Action} \to \text{Policy} \to \text{Signed Capability Receipt} \to \text
 
 ---
 
-## 4. Estructura de Paquetes v0.2.2
+## 4. Estructura de Paquetes v0.3-alpha
 
 ```
 jev-reasoning-navigator/
@@ -114,13 +118,15 @@ jev-reasoning-navigator/
 │   │   ├── action.py             # ActionCandidate, ToolCall, BatchSemantics
 │   │   ├── observation.py        # Observation, ToolOutput
 │   │   ├── evidence.py           # Evidence, GroundingStatus
-│   │   ├── assessment.py         # ProviderAssessment, JEVAssessment, RiskAssessment
+│   │   ├── assessment.py         # ProviderAssessment (con metadata de reproducibilidad), JEVAssessment, RiskAssessment
 │   │   ├── decision.py           # PolicyDecision, DecisionReceipt, HMAC signature verification, compute_action/state_hash
 │   │   ├── checkpoint.py         # Checkpoint, SessionSnapshot
 │   │   ├── state.py              # SessionState (hash canónico SHA-256 determinista)
 │   │   ├── models.py             # Re-exportador canónico de dominio
 │   │   └── interfaces.py         # Protocols: ReasoningProvider, EvidenceProvider, Executor
-│   ├── providers/                # Adaptadores de inferencia semántica
+│   ├── providers/                # Adaptadores de inferencia semántica desacoplados
+│   │   ├── context.py            # ProviderContextBuilder con token budgeting, windowing y truncamiento
+│   │   ├── laya.py               # LayaProvider (System-1 primitives: choice, score, noul; auto/local/hosted/simulated)
 │   │   ├── typesafe.py           # Adaptador de TypeSafe AI System One con fail-safe
 │   │   └── replay.py             # ReplayProvider determinista para tests y benchmarks offline
 │   ├── reasoning/                # Evaluación de evidencias, bucles, fundamentación y completitud
@@ -133,7 +139,7 @@ jev-reasoning-navigator/
 │   │   ├── registry.py           # ToolRegistry y ToolSpec tipados
 │   │   ├── permissions.py        # PermissionManager, HumanApprovalTicket y RBAC
 │   │   ├── failsafe.py           # FailSafePolicy para caídas de red o incertidumbre
-│   │   └── engine.py             # PolicyEngine con soporte de confirmación humana y firma HMAC
+│   │   └── engine.py             # PolicyEngine con escalado por baja confianza, confirmación humana y firma HMAC
 │   ├── runtime/                  # Estado, orquestación, checkpoints, sandbox y ejecución
 │   │   ├── state_store.py        # InMemoryStateStore y abstracciones de persistencia
 │   │   ├── nonce_store.py        # NonceStore con poda por TTL y defensa anti-replay duradera
@@ -142,22 +148,22 @@ jev-reasoning-navigator/
 │   │   ├── executor.py           # SecureExecutor con HMAC capability verification, no-replay y expiration check
 │   │   └── navigator.py          # Navigator (orquestador del pipeline completo)
 │   ├── integrations/             # Integraciones externas y protocolos
-│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.2
+│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.2+
 │   │       └── server.py         # Servidor MCP stdio con registro formal de herramientas v2
 │   ├── evaluation/               # Framework de benchmarking y métricas
 │   │   ├── scenarios.py          # ScenarioCatalog y generador con ground truth
 │   │   ├── metrics.py            # Decision and Physical Execution safety metrics
-│   │   ├── reports.py            # Generador formal de informes de benchmark
-│   │   └── runner.py             # BenchmarkRunner con verificación de ejecución física en sandbox
+│   │   ├── reports.py            # Generador formal de informes de benchmark y ProviderComparisonReport
+│   │   └── runner.py             # BenchmarkRunner con verificación física y ejecución multi-proveedor
 │   ├── interceptor/              # Servidor MCP y middleware de tiempo real
-│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + nativo v0.2.2)
+│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + nativo v0.2.2+)
 │   │   └── proxy_middleware.py   # Middleware para agentes LLM en streaming
-│   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich
+│   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich y soporte multi-proveedor
 │   ├── live_agent.py             # Agente autónomo con Gemini supervisado en vivo
 │   └── dashboard.py              # Dashboard TUI interactivo en tiempo real
-├── tests/                        # 137 tests unitarios, de integración, endurecimiento y bypass pasando al 100%
+├── tests/                        # 146 tests unitarios, de integración, endurecimiento, bypass y conformidad pasando al 100%
 ├── SECURITY.md                   # Política formal de divulgación y modelo de amenazas
-├── pyproject.toml                # v0.2.2
+├── pyproject.toml                # v0.3.0a1
 └── README.md
 ```
 
@@ -195,13 +201,19 @@ El CLI `jev-nav` provee acceso tanto a las capacidades analíticas de la v0.1 co
 # 1. Ejecutar benchmark completo con tabla de escenarios y métricas consolidadas
 uv run jev-nav benchmark
 
-# 2. Ejecutar estudio formal de ablaciones de las 5 capas
+# 2. Ejecutar benchmark comparativo entre proveedores (Replay, LAYA, TypeSafe)
+uv run jev-nav benchmark --compare-providers
+
+# 3. Ejecutar benchmark seleccionando un proveedor específico
+uv run jev-nav benchmark --provider laya
+
+# 4. Ejecutar estudio formal de ablaciones de las 5 capas
 uv run jev-nav benchmark --ablation
 
-# 3. Comparativa cuantitativa de seguridad v0.1 vs v0.2
+# 5. Comparativa cuantitativa de seguridad v0.1 vs v0.2
 uv run jev-nav benchmark --compare-v1
 
-# 4. Exportar reporte de auditoría a JSON
+# 6. Exportar reporte de auditoría a JSON
 uv run jev-nav benchmark --output auditoria_report.json
 ```
 
@@ -265,15 +277,16 @@ uv run jev-live "Corregir función en parser.py" --model gemini-2.5-flash --once
 
 ---
 
-## 8. Uso Programático en Python (Runtime v0.2)
+## 8. Uso Programático en Python (Runtime v0.3-alpha)
 
 ```python
 from jev_navigator.domain import Goal, ActionCandidate, ToolCall
-from jev_navigator.providers.typesafe import TypeSafeAdapter
+from jev_navigator.providers import LayaProvider, TypeSafeAdapter
 from jev_navigator.runtime import Navigator, SecureExecutor
 
-# 1. Inicializar componentes desacoplados
-provider = TypeSafeAdapter()             # Juicio semántico (TypeSafe System One)
+# 1. Inicializar componentes desacoplados con proveedor a elección (LAYA o TypeSafe)
+# LAYA: Primitivas System-1 (choice, score, noul) con backends local, hosted o simulado
+provider = LayaProvider(backend="auto")
 executor = SecureExecutor(dry_run=False) # Ejecución física garantizada
 navigator = Navigator(provider=provider, executor=executor)
 
@@ -296,6 +309,8 @@ decision, observacion = navigator.step(accion, auto_checkpoint=True)
 
 if decision.status == "allow":
     print(f"Paso ejecutado con éxito: {observacion.output}")
+elif decision.status == "abstain":
+    print(f"Acción escalada a revisión humana: {decision.reason_codes}")
 else:
     print(f"Acción denegada por política: {decision.status} - Motivos: {decision.reason_codes}")
 
@@ -308,19 +323,26 @@ if decision.status == "replan":
 
 ## 9. Verificación de la Suite de Pruebas e Invariantes
  
-Toda la arquitectura v0.2.2, los contratos formales y las propiedades de seguridad están respaldadas por **137 pruebas automatizadas al 100%**:
+Toda la arquitectura v0.3-alpha, los contratos formales de proveedores (`LayaProvider`, `TypeSafeAdapter`, `ReplayProvider`), el acotamiento de contexto y las propiedades de seguridad están respaldadas por **146 pruebas automatizadas al 100%**:
  
 ```bash
 pytest -q
-# ........................................................................ [ 52%]
-# .................................................................        [100%]
-# 137 passed in 40.18s
+# ........................................................................ [ 49%]
+# ........................................................................ [ 98%]
+# ..                                                                       [100%]
+# 146 passed in 41.86s
 ```
  
 ---
  
-## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.2.2)
- 
+## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.3-alpha)
+
+- **Proveedor LAYA con Primitivas System-1 (`LayaProvider`)**:
+  Inferencia probabilística desacoplada que calcula veredictos de clasificación (`choice`), estimación continua de avance (`score`), y probabilidades calibradas de bucle y fundamentación (`noul`). Soporta modos `local` (pesos de red locales), `hosted` (vía HTTP/RPC), `simulated` (determinista para test/CI) y selección automática `auto`, exponiendo metadatos completos de telemetría y reproducibilidad (`latency_ms`, `context_tokens`, `device`, `checkpoint_version`).
+- **Normalizador y Gestor de Presupuesto de Contexto (`ProviderContextBuilder`)**:
+  Ventanas temporales acotadas (`max_history_steps`), control de presupuesto de tokens (`token_budget`), truncamiento seguro de observaciones extensas (`max_observation_chars`) con marcado formal `truncated: bool`, y exportación canónica para backends LAYA y TypeSafe.
+- **Escalado por Baja Confianza de Inferencia (*JEV-as-a-Judge*)**:
+  Filtro de confianza mínima en `PolicyEngine` (`min_confidence_threshold: 0.40`). Cualquier juicio emitido con baja confianza se enruta inmediatamente a `DecisionStatus.ABSTAIN` bajo el código `LOW_PROVIDER_CONFIDENCE_ESCALATE`, impidiendo falsos positivos por incertidumbre.
 - **Firmas Criptográficas HMAC-SHA256 (`DecisionReceipt`)**:
   Autenticación matemática de cada capability emitido por la `PolicyEngine`, garantizando que ninguna acción sea ejecutada con recibos manipulados o apócrifos.
 - **Defensa Anti-Replay con Almacén Durable (`NonceStore`)**:
