@@ -1,14 +1,14 @@
 """Pruebas unitarias para Navigator como orquestador central en v0.2."""
 
 import pytest
-from jev_navigator.domain import (
+from praxeon.domain import (
     ActionCandidate,
     DecisionStatus,
     Goal,
     ToolCall,
 )
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime import Navigator, SecureExecutor, SessionState
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime import Navigator, SecureExecutor, SessionState
 
 
 def test_navigator_session_lifecycle_and_genesis_checkpoint():

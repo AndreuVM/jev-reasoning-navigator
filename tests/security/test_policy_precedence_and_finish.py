@@ -1,12 +1,12 @@
 """Pruebas de seguridad para precedencia estricta de políticas y verificación de finish (tests/security/test_policy_precedence_and_finish.py)."""
 
 import pytest
-from jev_navigator.domain.assessment import ProviderAssessment
-from jev_navigator.domain.goal import CriterionType, Goal, SuccessCriterion
-from jev_navigator.domain.models import ActionCandidate, DecisionStatus, RiskAssessment, RiskLevel, ToolCall
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.reasoning.completion import CompletionVerifier, CriterionStatus
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.assessment import ProviderAssessment
+from praxeon.domain.goal import CriterionType, Goal, SuccessCriterion
+from praxeon.domain.models import ActionCandidate, DecisionStatus, RiskAssessment, RiskLevel, ToolCall
+from praxeon.policy.engine import PolicyEngine
+from praxeon.reasoning.completion import CompletionVerifier, CriterionStatus
+from praxeon.runtime.state import SessionState
 
 
 def test_critical_risk_precedence_over_high_provider_jev():

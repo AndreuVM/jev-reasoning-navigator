@@ -1,0 +1,16 @@
+"""Módulo de razonamiento, evaluación analítica y detección de anomalías v0.2."""
+
+from praxeon.reasoning.completion import CompletionAssessment, CompletionVerifier
+from praxeon.reasoning.evaluator import CognitiveEvaluator
+from praxeon.reasoning.grounding import EvidenceEngine
+from praxeon.reasoning.loop_detector import LoopDetector
+from praxeon.reasoning.risk import RiskEngine
+
+__all__ = [
+    "CompletionAssessment",
+    "CompletionVerifier",
+    "CognitiveEvaluator",
+    "EvidenceEngine",
+    "LoopDetector",
+    "RiskEngine",
+]

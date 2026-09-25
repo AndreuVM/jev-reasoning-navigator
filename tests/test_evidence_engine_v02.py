@@ -1,7 +1,7 @@
 """Pruebas unitarias para EvidenceEngine en v0.2."""
 
-from jev_navigator.domain import ActionCandidate, ToolCall
-from jev_navigator.reasoning import EvidenceEngine
+from praxeon.domain import ActionCandidate, ToolCall
+from praxeon.reasoning import EvidenceEngine
 
 
 def test_evidence_ingestion_and_requirement_checking():

@@ -3,18 +3,18 @@
 from datetime import datetime, timedelta
 import tempfile
 import pytest
-from jev_navigator.domain.action import compute_action_hash
-from jev_navigator.domain.decision import (
+from praxeon.domain.action import compute_action_hash
+from praxeon.domain.decision import (
     compute_state_hash,
     DecisionReceipt,
     DecisionStatus,
     PolicyDecision,
     sign_receipt,
 )
-from jev_navigator.domain.models import ActionCandidate, Goal, RiskAssessment, RiskLevel, ToolCall
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.nonce_store import InMemoryNonceStore, SqliteNonceStore
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.models import ActionCandidate, Goal, RiskAssessment, RiskLevel, ToolCall
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.nonce_store import InMemoryNonceStore, SqliteNonceStore
+from praxeon.runtime.state import SessionState
 
 
 @pytest.fixture

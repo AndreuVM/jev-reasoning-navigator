@@ -36,8 +36,8 @@ jobs:
 
       - name: Run Formal Verification Benchmark (10 scenarios)
         run: |
-          python -m jev_navigator.cli benchmark
+          python -m praxeon.cli benchmark
 
       - name: Run Ablation Study
         run: |
-          python -m jev_navigator.cli benchmark --ablation
+          python -m praxeon.cli benchmark --ablation

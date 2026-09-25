@@ -1,10 +1,10 @@
 """Pruebas de seguridad para ejecución de subprocesos, intérpretes y contención de herramientas (tests/security/test_subprocesses_and_interpreters.py)."""
 
 import pytest
-from jev_navigator.domain.models import ActionCandidate, DecisionStatus, Goal, RiskAssessment, RiskLevel, ToolCall
-from jev_navigator.policy.permissions import PermissionManager
-from jev_navigator.policy.registry import ToolRegistry
-from jev_navigator.runtime.sandbox import LocalProcessSandbox, SandboxExecutionResult
+from praxeon.domain.models import ActionCandidate, DecisionStatus, Goal, RiskAssessment, RiskLevel, ToolCall
+from praxeon.policy.permissions import PermissionManager
+from praxeon.policy.registry import ToolRegistry
+from praxeon.runtime.sandbox import LocalProcessSandbox, SandboxExecutionResult
 
 
 def test_unregistered_tool_blocked_by_permission_manager():

@@ -1,4 +1,6 @@
-# Política de Seguridad y Modelo de Amenazas: JEV Reasoning Navigator
+# Política de Seguridad y Modelo de Amenazas: PRAXEON
+
+**Runtime supervision for autonomous AI agents**
 
 ## 1. Versiones Soportadas
 
@@ -13,7 +15,7 @@
 
 ## 2. Modelo de Amenazas y Filosofía de Defensa en Profundidad
 
-JEV Reasoning Navigator asume un entorno de adversarios hostiles donde el modelo de lenguaje (LLM) está sujeto a:
+PRAXEON asume un entorno de adversarios hostiles donde el modelo de lenguaje (LLM) está sujeto a:
 - **Inyección indirecta de prompts** a través de observaciones del entorno (archivos, páginas web, APIs externas).
 - **Alucinación de herramientas y parámetros** (invocaciones no fundamentadas empíricamente).
 - **Tentativas de manipulación de estado o replay attacks** (reutilización de autorizaciones pasadas).
@@ -69,11 +71,11 @@ $$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \
 
 ## 3. Reporte Responsable de Vulnerabilidades
 
-Agradecemos y valoramos el trabajo de los investigadores de seguridad. Si descubres una vulnerabilidad potencial en JEV Reasoning Navigator:
+Agradecemos y valoramos el trabajo de los investigadores de seguridad. Si descubres una vulnerabilidad potencial en PRAXEON:
 
 1. **NO abras una issue pública** en GitHub.
 2. Envía un reporte detallado con los pasos para reproducir la vulnerabilidad a través de la pestaña **Security Advisories** de GitHub:
-   [https://github.com/AndreuVM/jev-reasoning-navigator/security/advisories/new](https://github.com/AndreuVM/jev-reasoning-navigator/security/advisories/new)
+   [https://github.com/AndreuVM/praxeon/security/advisories/new](https://github.com/AndreuVM/praxeon/security/advisories/new)
 3. Proporciona:
    - Descripción del vector de ataque y componente afectado (`SecureExecutor`, `PolicyEngine`, `SandboxAdapter`, `MCP`, etc.).
    - Prueba de concepto (PoC) ejecutable o traza reproducible.

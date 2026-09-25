@@ -1,0 +1,301 @@
+"""Ejecutor físico con enforcement formal (SecureExecutor) para v0.2.1.
+
+Aplica los principios fundamentales:
+1. Prompt instruction != Execution enforcement.
+2. Ninguna herramienta puede ejecutarse físicamente sin presentar un capability / DecisionReceipt
+   válido, firmado/emitido por PolicyEngine, no manipulado y no consumido (Replay Prevention).
+3. Toda ejecución física de herramientas se aísla mediante SandboxAdapter, protegiendo al host
+   contra inyección de subshells, acceso no autorizado a archivos fuera del workspace y fugas de secretos.
+"""
+
+import time
+from typing import Any, Callable, Dict, Optional, Set
+from pydantic import BaseModel, ConfigDict
+from praxeon.domain.action import compute_action_hash
+from praxeon.domain.decision import (
+    compute_state_hash,
+    DecisionReceipt,
+    DecisionStatus,
+    PolicyDecision,
+    verify_receipt_signature,
+)
+from praxeon.domain.interfaces import Executor
+from praxeon.domain.models import ActionCandidate
+from praxeon.policy.risk import ToolRegistry
+from praxeon.policy.sanitizer import DataSanitizer
+from praxeon.runtime.nonce_store import InMemoryNonceStore, NonceStore
+from praxeon.runtime.sandbox import DryRunSandbox, LocalProcessSandbox, SandboxAdapter
+from praxeon.runtime.state import SessionState
+
+
+class PolicyViolation(Exception):
+    """Excepción lanzada cuando una herramienta intenta ejecutarse en contra de la política o sin autorización."""
+
+    def __init__(
+        self,
+        message: str,
+        action: ActionCandidate,
+        decision: Optional[PolicyDecision] = None,
+        receipt: Optional[DecisionReceipt] = None,
+    ):
+        super().__init__(message)
+        self.action = action
+        self.decision = decision
+        self.receipt = receipt
+
+
+class ToolObservation(BaseModel):
+    """Resultado estructurado de la ejecución física de una herramienta."""
+    model_config = ConfigDict(frozen=True)
+
+    output: str
+    success: bool = True
+    execution_time_ms: float = 0.0
+    tool_name: Optional[str] = None
+    is_error: bool = False
+
+
+class SecureExecutor(Executor):
+    """Ejecutor físico con validación estricta de capacidades/recibos y aislamiento en sandbox."""
+
+    def __init__(
+        self,
+        registry: Optional[ToolRegistry] = None,
+        sandbox: Optional[SandboxAdapter] = None,
+        dry_run: bool = False,
+        sanitizer: Optional[DataSanitizer] = None,
+        strict_capability: bool = True,
+        secret_key: Optional[str] = None,
+        nonce_store: Optional[NonceStore] = None,
+    ):
+        self.registry = registry or ToolRegistry(register_defaults=True)
+        self.dry_run = dry_run
+        if dry_run:
+            self.sandbox = sandbox if sandbox is not None else DryRunSandbox()
+        else:
+            self.sandbox = sandbox if sandbox is not None else LocalProcessSandbox()
+        self.sanitizer = sanitizer if sanitizer is not None else DataSanitizer()
+        self.strict_capability = strict_capability
+        self.secret_key = secret_key
+        self.nonce_store = nonce_store if nonce_store is not None else InMemoryNonceStore()
+        self._consumed_receipts: Set[str] = set()
+        self._custom_handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {}
+
+    def register_handler(self, tool_name: str, handler: Callable[[Dict[str, Any]], str]) -> None:
+        """Permite inyectar controladores personalizados o mocks para herramientas."""
+        self._custom_handlers[tool_name] = handler
+
+    def execute(
+        self,
+        action: ActionCandidate,
+        state: SessionState,
+        receipt: Optional[DecisionReceipt] = None,
+        decision: Optional[PolicyDecision] = None,
+    ) -> ToolObservation:
+        """Valida rigurosamente la autorización mediante capability/recibo y ejecuta en sandbox."""
+        tool_name = action.tool_call.tool_name if action.tool_call else None
+        tool_args = action.tool_call.arguments if action.tool_call else {}
+
+        # 1. BARRERA DE ENFORCEMENT: Exigir Capability / DecisionReceipt válido
+        if receipt is None:
+            if decision is not None and not self.strict_capability:
+                # Modo de compatibilidad relajado explícito
+                if decision.status != DecisionStatus.ALLOW:
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': el estatus de la política es {decision.status} "
+                        f"(Motivos: {', '.join(decision.reason_codes)})",
+                        action=action,
+                        decision=decision,
+                    )
+            else:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': Se requiere un capability/DecisionReceipt "
+                    "válido y no reutilizado emitido por PolicyEngine. La ejecución directa sin autorización formal está terminantemente prohibida.",
+                    action=action,
+                    decision=decision,
+                )
+        else:
+            # Validación rigurosa del capability ligado
+            if receipt.decision_status != DecisionStatus.ALLOW:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': el recibo presenta estatus no autorizado: '{receipt.decision_status}' "
+                    f"(Motivos: {', '.join(receipt.reason_codes)})",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar hash de acción (evita manipulación o cambio de tool/args)
+            expected_action_hash = compute_action_hash(action)
+            if receipt.action_hash != expected_action_hash:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El hash de la acción ({expected_action_hash[:12]}...) "
+                    f"no coincide con el capability ({receipt.action_hash[:12]}...). Acción manipulada o desvinculada.",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar hash de estado (evita replay en estados desfasados)
+            snapshot_dict = state.to_snapshot()
+            snapshot_hash = compute_state_hash(snapshot_dict)
+            canonical_hash = state.compute_hash()
+
+            valid_hashes = {snapshot_hash, canonical_hash}
+            if "checkpoint_ids" in snapshot_dict:
+                # Comprobar estado con los checkpoints anteriores al auto-checkpoint actual
+                if len(state.checkpoint_ids) > 0:
+                    snap_prev_chk = dict(snapshot_dict)
+                    snap_prev_chk["checkpoint_ids"] = list(state.checkpoint_ids[:-1])
+                    valid_hashes.add(compute_state_hash(snap_prev_chk))
+
+            if receipt.state_hash not in valid_hashes:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El hash de estado ({receipt.state_hash[:12]}...) "
+                    f"está desfasado frente al estado actual ({snapshot_hash[:12]}...).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar ligadura de sesión
+            if receipt.session_id != state.session_id:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El ID de sesión del capability ({receipt.session_id}) "
+                    f"no coincide con la sesión activa ({state.session_id}).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar ventana de validez temporal (Expiración)
+            if receipt.is_expired():
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El capability ha expirado "
+                    f"(expiró en: {receipt.expires_at.isoformat() if receipt.expires_at else 'N/A'}).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Verificar autenticidad mediante firma HMAC si se configuró clave secreta
+            if self.secret_key:
+                if not receipt.signature:
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': El capability carece de firma HMAC auténtica del emisor.",
+                        action=action,
+                        decision=decision,
+                        receipt=receipt,
+                    )
+                if not verify_receipt_signature(self.secret_key, receipt):
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': La firma HMAC del capability es inválida o ha sido manipulada.",
+                        action=action,
+                        decision=decision,
+                        receipt=receipt,
+                    )
+
+            # Verificar no-reutilización (Replay attack prevention mediante NonceStore)
+            if self.nonce_store.has_been_consumed(receipt.decision_id, receipt.nonce) or receipt.decision_id in self._consumed_receipts:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El capability '{receipt.decision_id}' "
+                    f"con nonce '{receipt.nonce}' ya ha sido consumido previamente (Replay attack prevention).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Consumir el capability de forma atómica en NonceStore y registro local
+            self.nonce_store.consume(receipt.decision_id, receipt.nonce, expires_at=receipt.expires_at)
+            self._consumed_receipts.add(receipt.decision_id)
+
+        # 2. BARRERA DE ENFORCEMENT: Verificar si la herramienta está prohibida en el estado
+        if tool_name and tool_name in state.forbidden_tools:
+            raise PolicyViolation(
+                f"Ejecución física DENEGADA para '{tool_name}': la herramienta está explícitamente PROHIBIDA en este estado.",
+                action=action,
+                decision=decision,
+                receipt=receipt,
+            )
+
+        # 3. BARRERA DE ENFORCEMENT: Verificar si la herramienta está registrada
+        if tool_name and not self.registry.is_known(tool_name) and tool_name not in self._custom_handlers:
+            raise PolicyViolation(
+                f"Ejecución física DENEGADA: herramienta desconocida '{tool_name}' no admitida en ToolRegistry.",
+                action=action,
+                decision=decision,
+                receipt=receipt,
+            )
+
+        # 4. Modo cognitivo puro (sin herramienta física)
+        if not tool_name:
+            return ToolObservation(
+                output=action.rationale or action.description or "Paso cognitivo registrado.",
+                success=True,
+                execution_time_ms=0.0,
+                tool_name=None,
+            )
+
+        # 5. Despacho a controlador personalizado si existe
+        if tool_name in self._custom_handlers:
+            start_t = time.perf_counter()
+            try:
+                out = self._custom_handlers[tool_name](tool_args)
+                elapsed = (time.perf_counter() - start_t) * 1000.0
+                redacted = self.sanitizer.redact_text(out)
+                return ToolObservation(
+                    output=self.sanitizer.enforce_payload_limit(redacted),
+                    success=True,
+                    execution_time_ms=round(elapsed, 2),
+                    tool_name=tool_name,
+                )
+            except Exception as e:
+                elapsed = (time.perf_counter() - start_t) * 1000.0
+                return ToolObservation(
+                    output=f"Error en handler de '{tool_name}': {e}",
+                    success=False,
+                    execution_time_ms=round(elapsed, 2),
+                    tool_name=tool_name,
+                    is_error=True,
+                )
+
+        # 6. Ejecución física contenida dentro del SandboxAdapter
+        start_t = time.perf_counter()
+        raw_output, success, is_error = self._execute_builtin_tool_in_sandbox(tool_name, tool_args)
+        elapsed = (time.perf_counter() - start_t) * 1000.0
+
+        # Aplicar redacción de secretos y límite de payload configurado
+        redacted_output = self.sanitizer.redact_text(raw_output)
+        final_output = self.sanitizer.enforce_payload_limit(redacted_output)
+
+        return ToolObservation(
+            output=final_output,
+            success=success,
+            execution_time_ms=round(elapsed, 2),
+            tool_name=tool_name,
+            is_error=is_error,
+        )
+
+    def _execute_builtin_tool_in_sandbox(self, tool_name: str, args: Dict[str, Any]) -> tuple[str, bool, bool]:
+        """Ejecuta controladores nativos seguros delegando en el SandboxAdapter."""
+        if tool_name in ("read_file", "view_file"):
+            path = str(args.get("path") or args.get("file") or "").strip()
+            res = self.sandbox.read_file(path)
+            return res.output, res.success, res.is_error
+
+        elif tool_name == "edit_file":
+            path = str(args.get("path") or "").strip()
+            content = str(args.get("content") or "").strip()
+            res = self.sandbox.edit_file(path, content)
+            return res.output, res.success, res.is_error
+
+        elif tool_name == "run_command":
+            cmd = str(args.get("command") or args.get("cmd") or "").strip()
+            res = self.sandbox.execute_command(cmd)
+            return res.output, res.success, res.is_error
+
+        elif tool_name == "finish":
+            summary = str(args.get("summary") or "Tarea completada.")
+            return f"Tarea concluida: {summary}", True, False
+
+        return f"Herramienta '{tool_name}' sin controlador físico implementado en sandbox.", False, True

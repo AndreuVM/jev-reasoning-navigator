@@ -2,8 +2,8 @@
 
 import pytest
 from unittest.mock import MagicMock
-from jev_navigator.domain import ActionCandidate, ToolCall
-from jev_navigator.providers import TypeSafeAdapter
+from praxeon.domain import ActionCandidate, ToolCall
+from praxeon.providers import TypeSafeAdapter
 
 
 def test_typesafe_adapter_offline_when_no_api_key():

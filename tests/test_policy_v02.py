@@ -1,7 +1,7 @@
 """Pruebas unitarias para la capa de política y ReplayProvider de v0.2."""
 
 import pytest
-from jev_navigator.domain import (
+from praxeon.domain import (
     ActionCandidate,
     DecisionStatus,
     Evidence,
@@ -9,8 +9,8 @@ from jev_navigator.domain import (
     RiskLevel,
     ToolCall,
 )
-from jev_navigator.policy import FailSafePolicy, PolicyEngine, ToolRegistry, ToolSpec
-from jev_navigator.providers import ReplayProvider
+from praxeon.policy import FailSafePolicy, PolicyEngine, ToolRegistry, ToolSpec
+from praxeon.providers import ReplayProvider
 
 
 def test_policy_allows_safe_and_grounded_action():

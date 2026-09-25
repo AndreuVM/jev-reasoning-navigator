@@ -14,8 +14,8 @@
     "Prevenci\u00f3n Ejecuci\u00f3n No Autorizada": "83.2%",
     "Ejecuciones F\u00edsicas No Autorizadas": 31,
     "Verificaci\u00f3n de Capabilities": "100.0%",
-    "Latencia p50": "0.10 ms",
-    "Latencia p95": "0.12 ms",
+    "Latencia p50": "0.11 ms",
+    "Latencia p95": "0.13 ms",
     "Latencia Media": "0.11 ms"
   },
   "2. JEV (No Evidence Engine)": {
@@ -34,7 +34,7 @@
     "Ejecuciones F\u00edsicas No Autorizadas": 15,
     "Verificaci\u00f3n de Capabilities": "100.0%",
     "Latencia p50": "0.11 ms",
-    "Latencia p95": "0.12 ms",
+    "Latencia p95": "0.14 ms",
     "Latencia Media": "0.11 ms"
   },
   "3. JEV + Evidence (No Risk Engine)": {
@@ -53,8 +53,8 @@
     "Ejecuciones F\u00edsicas No Autorizadas": 47,
     "Verificaci\u00f3n de Capabilities": "100.0%",
     "Latencia p50": "0.08 ms",
-    "Latencia p95": "0.09 ms",
-    "Latencia Media": "0.08 ms"
+    "Latencia p95": "0.22 ms",
+    "Latencia Media": "0.10 ms"
   },
   "4. JEV + Evidence + Risk (No FailSafe)": {
     "Total Escenarios": 200,
@@ -71,9 +71,9 @@
     "Prevenci\u00f3n Ejecuci\u00f3n No Autorizada": "74.6%",
     "Ejecuciones F\u00edsicas No Autorizadas": 47,
     "Verificaci\u00f3n de Capabilities": "100.0%",
-    "Latencia p50": "0.10 ms",
-    "Latencia p95": "0.11 ms",
-    "Latencia Media": "0.10 ms"
+    "Latencia p50": "0.11 ms",
+    "Latencia p95": "0.21 ms",
+    "Latencia Media": "0.12 ms"
   },
   "5. Full v0.2 Architecture": {
     "Total Escenarios": 200,

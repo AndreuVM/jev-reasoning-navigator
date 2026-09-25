@@ -1,7 +1,7 @@
 """Pruebas unitarias para RiskEngine en v0.2."""
 
-from jev_navigator.domain import ActionCandidate, RiskLevel, ToolCall
-from jev_navigator.reasoning import RiskEngine
+from praxeon.domain import ActionCandidate, RiskLevel, ToolCall
+from praxeon.reasoning import RiskEngine
 
 
 def test_risk_engine_pure_cognitive_step():

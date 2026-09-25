@@ -1,12 +1,12 @@
 """Pruebas de seguridad contra prompt injection indirecto en observaciones (tests/security/test_prompt_injection_observations.py)."""
 
 import pytest
-from jev_navigator.domain.models import ActionCandidate, DecisionStatus, Goal, ToolCall
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.policy.sanitizer import DataSanitizer
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.models import ActionCandidate, DecisionStatus, Goal, ToolCall
+from praxeon.policy.engine import PolicyEngine
+from praxeon.policy.sanitizer import DataSanitizer
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.state import SessionState
 
 
 def test_untrusted_content_wrapping():

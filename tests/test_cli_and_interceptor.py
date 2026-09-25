@@ -4,9 +4,9 @@ import json
 from pathlib import Path
 import pytest
 
-from jev_navigator.cli import analyze_trace_file, simulate_trace_execution
-from jev_navigator.interceptor.mcp_bridge import MCPBridge
-from jev_navigator.interceptor.proxy_middleware import JEVProxyMiddleware
+from praxeon.cli import analyze_trace_file, simulate_trace_execution
+from praxeon.interceptor.mcp_bridge import MCPBridge
+from praxeon.interceptor.proxy_middleware import JEVProxyMiddleware
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "loop_traces"
 
@@ -157,7 +157,7 @@ def test_mcp_bridge_evaluate_step_chunk():
 
 def test_parse_llm_steps():
     """Verifica que el parser de pasos extraiga bloques multi-paso y formatos individuales."""
-    from jev_navigator.live_agent import parse_llm_steps
+    from praxeon.live_agent import parse_llm_steps
 
     multi_step_output = (
         "Step 1:\n"
@@ -186,7 +186,7 @@ def test_parse_llm_steps():
 def test_live_agent_main_iterative_goals(monkeypatch):
     """Verifica que jev-live solicite y procese múltiples objetivos de manera iterativa."""
     import io
-    from jev_navigator import live_agent
+    from praxeon import live_agent
 
     executed_tasks = []
 
@@ -207,7 +207,7 @@ def test_live_agent_main_iterative_goals(monkeypatch):
 
 def test_live_agent_main_once_flag(monkeypatch):
     """Verifica que el flag --once ejecute únicamente la meta proporcionada y finalice."""
-    from jev_navigator import live_agent
+    from praxeon import live_agent
 
     executed_tasks = []
 
@@ -253,7 +253,7 @@ def test_proxy_middleware_terminal_finish():
 def test_dashboard_interactive_loop(monkeypatch):
     """Verifica que el dashboard soporte ejecución interactiva continua y salida con 'salir'."""
     import io
-    from jev_navigator import dashboard
+    from praxeon import dashboard
 
     # 1. Probar corrida con --once
     dashboard.run_visual_demo(task="Tarea Once", once=True)
@@ -266,7 +266,7 @@ def test_dashboard_interactive_loop(monkeypatch):
 
 def test_run_visual_live_interactive(monkeypatch):
     """Verifica que run_visual_live ejecute tareas y soporte memoria entre iteraciones."""
-    from jev_navigator import dashboard
+    from praxeon import dashboard
 
     recorded_calls = []
 
@@ -293,7 +293,7 @@ def test_run_visual_live_interactive(monkeypatch):
 def test_model_recovery_menu_options(monkeypatch, tmp_path):
     """Verifica que el menú de recuperación permita seleccionar modelos alternativos o cancelar."""
     import io
-    from jev_navigator.model_recovery import prompt_model_recovery_menu, _persist_api_key_to_env
+    from praxeon.model_recovery import prompt_model_recovery_menu, _persist_api_key_to_env
 
     # 1. Opción 1: gemini-3.6-flash
     monkeypatch.setattr("sys.stdin", io.StringIO("1\n"))
@@ -336,7 +336,7 @@ def test_model_recovery_menu_options(monkeypatch, tmp_path):
 
 def test_parse_llm_steps_inline_action_not_finish():
     """Verifica que si el modelo emite Action en la misma línea que Thought, no se interprete como finish erróneo."""
-    from jev_navigator.live_agent import parse_llm_steps
+    from praxeon.live_agent import parse_llm_steps
 
     inline_text = (
         'Thought: Necesito conocer todos los archivos del proyecto para poder auditarlos correctamente. '
@@ -351,7 +351,7 @@ def test_parse_llm_steps_inline_action_not_finish():
 
 def test_session_context_manager_lifecycle():
     """Verifica el ciclo de vida del SessionContextManager: acumulación, inyección y extracción de hechos."""
-    from jev_navigator.core.session_context import SessionContextManager
+    from praxeon.core.session_context import SessionContextManager
 
     session = SessionContextManager()
     assert session.is_empty() is True
@@ -396,7 +396,7 @@ def test_session_context_manager_lifecycle():
 def test_live_agent_reset_command_clears_context(monkeypatch):
     """Verifica que el comando reset en live_agent limpie la memoria de sesión entre tareas."""
     import io
-    from jev_navigator import live_agent
+    from praxeon import live_agent
 
     executed_tasks = []
 
@@ -434,7 +434,7 @@ def test_proxy_middleware_rejects_evasive_finish_single_call():
 
 def test_proxy_middleware_rejects_evasive_finish_in_chunk():
     """Verifica que intercept_step_chunk detecte y bloquee finish evasivos como UNGROUNDED_PREMISE."""
-    from jev_navigator.models.schema import LoopType
+    from praxeon.models.schema import LoopType
 
     middleware = JEVProxyMiddleware(goal="Diagnosticar fallo")
     proposed_steps = [
@@ -454,7 +454,7 @@ def test_proxy_middleware_rejects_evasive_finish_in_chunk():
 
 def test_proxy_middleware_rejects_finish_coexisting_with_unexecuted_inspection():
     """Verifica que intercept_step_chunk bloquee un finish propuesto en el mismo bloque que un read_file sin ejecutar."""
-    from jev_navigator.models.schema import LoopType
+    from praxeon.models.schema import LoopType
 
     middleware = JEVProxyMiddleware(goal="Leer y resolver")
     proposed_steps = [
@@ -492,7 +492,7 @@ def test_proxy_middleware_accepts_genuine_finish():
 
 def test_session_context_injects_environment_info():
     """Verifica que SessionContextManager descubra e inyecte el entorno del sistema y el árbol de archivos."""
-    from jev_navigator.core.session_context import SessionContextManager
+    from praxeon.core.session_context import SessionContextManager
 
     session = SessionContextManager()
     env_info = session.get_environment_info()

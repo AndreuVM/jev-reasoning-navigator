@@ -1,15 +1,15 @@
 """Pruebas unitarias para el framework de evaluación y métricas en v0.2."""
 
 import pytest
-from jev_navigator.domain.models import DecisionStatus
-from jev_navigator.evaluation import (
+from praxeon.domain.models import DecisionStatus
+from praxeon.evaluation import (
     BenchmarkRunner,
     EvaluationMetrics,
     MetricsCalculator,
     ScenarioCatalog,
 )
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime import Navigator, SecureExecutor
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime import Navigator, SecureExecutor
 
 
 def test_scenario_catalog_integrity():

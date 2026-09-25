@@ -1,9 +1,9 @@
 """Pruebas unitarias para Fase 1: Esquemas, Parsers y StateGraph en NetworkX."""
 
 import pytest
-from jev_navigator.models.schema import Step, StepType, ActionCandidate, Trajectory
-from jev_navigator.models.trace import TraceParser
-from jev_navigator.core.state_graph import StateGraph
+from praxeon.models.schema import Step, StepType, ActionCandidate, Trajectory
+from praxeon.models.trace import TraceParser
+from praxeon.core.state_graph import StateGraph
 
 
 def test_step_schema_and_hashing():

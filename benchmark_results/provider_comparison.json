@@ -1,5 +1,5 @@
 {
-  "timestamp": 1790350134.4176269,
+  "timestamp": 1790351514.156695,
   "total_scenarios": 50,
   "agreement_count": 42,
   "agreement_rate": 0.84,
@@ -8,9 +8,9 @@
   "provider_a_name": "replay-mock-v1",
   "provider_b_name": "laya-v1-calibrated",
   "provider_a_avg_latency_ms": 0.0,
-  "provider_b_avg_latency_ms": 0.8,
+  "provider_b_avg_latency_ms": 0.78,
   "provider_a_p95_latency_ms": 0.01,
-  "provider_b_p95_latency_ms": 1.18,
+  "provider_b_p95_latency_ms": 1.23,
   "disagreements": [
     {
       "scenario_id": "synth_down_destr_804",

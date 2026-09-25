@@ -3,7 +3,7 @@
 import os
 import tempfile
 import pytest
-from jev_navigator.runtime.sandbox import LocalProcessSandbox, SandboxViolation
+from praxeon.runtime.sandbox import LocalProcessSandbox, SandboxViolation
 
 
 @pytest.fixture

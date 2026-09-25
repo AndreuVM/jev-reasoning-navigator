@@ -1,7 +1,7 @@
 """Pruebas para el estudio de ablaciones y comparativa cuantitativa v0.1 vs v0.2."""
 
 import pytest
-from jev_navigator.evaluation import BenchmarkRunner, ScenarioCatalog
+from praxeon.evaluation import BenchmarkRunner, ScenarioCatalog
 
 
 def test_ablation_study_validates_architectural_contributions():

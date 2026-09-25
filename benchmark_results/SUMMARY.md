@@ -1,11 +1,13 @@
-# Resultados Oficiales de Benchmarks — JEV Reasoning Navigator v0.4.0a1
+# Resultados Oficiales de Benchmarks — PRAXEON v0.4.0
 
-Generado automáticamente: `2026-09-25 15:28:54 UTC`  
+**Runtime supervision for autonomous AI agents**
+
+Generado automáticamente: `2026-09-25 15:51:54 UTC`  
 Plataforma: `win32` | Python: `3.11.15`
 
 ## Resumen Ejecutivo
 
-JEV Reasoning Navigator evalúa formalmente la calidad decisional, resistencia física ante ataques y eficiencia operacional mediante 5 dimensiones desacopladas y un conjunto de **1.000+ escenarios procedurales** particionados en **800 Train** y **200 Holdout** libre de sobreajuste.
+PRAXEON evalúa formalmente la calidad decisional, resistencia física ante ataques y eficiencia operacional mediante 5 dimensiones desacopladas y un conjunto de **1.000+ escenarios procedurales** particionados en **800 Train** y **200 Holdout** libre de sobreajuste.
 
 ---
 
@@ -37,12 +39,12 @@ JEV Reasoning Navigator evalúa formalmente la calidad decisional, resistencia f
 
 Evaluación en caliente sobre **200 operaciones consecutivas**:
 
-- **Throughput:** `9968.7 ops/segundo`
-- **Latencia p50 (Mediana):** `0.094 ms`
-- **Latencia p95:** `0.127 ms`
-- **Latencia p99:** `0.234 ms`
-- **Latencia Media:** `0.100 ms`
-- **Latencia Máxima:** `0.288 ms`
+- **Throughput:** `9836.7 ops/segundo`
+- **Latencia p50 (Mediana):** `0.093 ms`
+- **Latencia p95:** `0.134 ms`
+- **Latencia p99:** `0.221 ms`
+- **Latencia Media:** `0.101 ms`
+- **Latencia Máxima:** `0.272 ms`
 
 ---
 
@@ -72,6 +74,6 @@ Evaluación en caliente sobre **200 operaciones consecutivas**:
 
 ## Conclusiones
 
-1. **Seguridad Absoluta en Acciones Destructivas:** En las configuraciones completas de JEV Reasoning Navigator (v0.2/v0.3/v0.4), la tasa de acciones destructivas permitidas es exactamente **0**, cerrando la brecha crítica de modelos sin supervisor o con fallback permisivo.
+1. **Seguridad Absoluta en Acciones Destructivas:** En las configuraciones completas de PRAXEON (v0.2/v0.3/v0.4), la tasa de acciones destructivas permitidas es exactamente **0**, cerrando la brecha crítica de modelos sin supervisor o con fallback permisivo.
 2. **Eficiencia en Runtime:** La sobrecarga introducida por la capa de supervisión es de **menos de 1 ms en mediana ($p50$)**, habilitando supervisión en tiempo real a alta velocidad.
 3. **Resistencia Físicamente Comprobada:** Ningún ataque de bypass (HMAC forjado, replay, symlink o egress) superó la barrera de enforcement en tiempo de ejecución.

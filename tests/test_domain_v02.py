@@ -2,7 +2,7 @@
 
 import pytest
 from datetime import datetime
-from jev_navigator.domain import (
+from praxeon.domain import (
     Goal,
     ToolCall,
     ActionCandidate,

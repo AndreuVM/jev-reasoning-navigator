@@ -3,11 +3,11 @@
 from unittest.mock import MagicMock, patch
 import pytest
 
-from jev_navigator.config import JEVConfig
-from jev_navigator.core.jev_engine import JEVEngine
-from jev_navigator.core.state_graph import StateGraph
-from jev_navigator.core.typesafe_client import TypeSafeJEVClient
-from jev_navigator.models.schema import ActionCandidate, Step, StepType, Trajectory
+from praxeon.config import JEVConfig
+from praxeon.core.jev_engine import JEVEngine
+from praxeon.core.state_graph import StateGraph
+from praxeon.core.typesafe_client import TypeSafeJEVClient
+from praxeon.models.schema import ActionCandidate, Step, StepType, Trajectory
 
 
 def test_typesafe_client_unavailable_without_key():

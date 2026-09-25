@@ -6,12 +6,12 @@ jamás alcanza el handler físico de ejecución ni genera mutaciones en el siste
 
 from unittest.mock import MagicMock
 import pytest
-from jev_navigator.config import JEVConfig
-from jev_navigator.domain.models import ActionCandidate, DecisionStatus, Goal, ToolCall
-from jev_navigator.interceptor.mcp_bridge import MCPBridge
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime.executor import SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
+from praxeon.config import JEVConfig
+from praxeon.domain.models import ActionCandidate, DecisionStatus, Goal, ToolCall
+from praxeon.interceptor.mcp_bridge import MCPBridge
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime.executor import SecureExecutor
+from praxeon.runtime.navigator import Navigator
 
 
 def test_mcp_blocked_tool_call_never_touches_physical_executor():

@@ -19,7 +19,7 @@ from rich.panel import Panel
 from rich.table import Table
 
 from examples.demo_offline import run_offline_demo
-from jev_navigator.interceptor.proxy_middleware import JEVProxyMiddleware
+from praxeon.interceptor.proxy_middleware import JEVProxyMiddleware
 
 console = Console(legacy_windows=False)
 

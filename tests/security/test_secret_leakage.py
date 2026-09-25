@@ -1,8 +1,8 @@
 """Pruebas de seguridad contra fuga de secretos en variables de entorno y outputs (tests/security/test_secret_leakage.py)."""
 
 import os
-from jev_navigator.policy.sanitizer import DataSanitizer
-from jev_navigator.runtime.sandbox import LocalProcessSandbox
+from praxeon.policy.sanitizer import DataSanitizer
+from praxeon.runtime.sandbox import LocalProcessSandbox
 
 
 def test_environment_secrets_scrubbed_by_sandbox():

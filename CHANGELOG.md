@@ -6,6 +6,13 @@ Todas las modificaciones notables de este proyecto están documentadas en este a
 
 ## [0.4.0] — 2026-09-25
 
+### Cambiado
+- **Rebranding oficial a PRAXEON**:
+  - Nombre del proyecto y paquete actualizado a **PRAXEON** (`praxeon`).
+  - Descripción oficial: *"Runtime supervision for autonomous AI agents"*.
+  - Entry points de CLI actualizados a `praxeon`, `praxeon-dash`, `praxeon-live` y `praxeon-mcp` (manteniendo compatibilidad hacia atrás con los alias `jev-nav`, `jev-dash`, `jev-live` y `jev-mcp`).
+  - Módulo de compatibilidad `jev_navigator` con redirección automática transparente de imports y `DeprecationWarning`.
+
 ### Añadido
 - **Suite de Evaluación Multidimensional (Fase 4)**:
   - Dataset procedural masivo de 1.000+ escenarios con división estricta y determinista: 800 Train y 200 Holdout (`ScenarioCatalog.get_holdout_scenarios`).

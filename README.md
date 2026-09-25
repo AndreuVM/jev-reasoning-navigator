@@ -1,6 +1,6 @@
-# JEV Reasoning Navigator v0.4.0
+# PRAXEON v0.4.0
 
-**Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
+**Runtime supervision for autonomous AI agents**
 
 [![Tests](https://img.shields.io/badge/tests-199%20passed-brightgreen.svg)]()
 [![Version](https://img.shields.io/badge/version-v0.4.0-blue.svg)]()
@@ -8,7 +8,7 @@
 [![Security](https://img.shields.io/badge/security-sandbox%20%26%20container%20hardened-green.svg)]()
 [![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20CascadeRouter-purple.svg)]()
 
-`JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
+`PRAXEON` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
 Evolucionado a la versión **v0.4.0** a partir de la implementación de enrutamiento adaptativo (*Confidence-Aware Routing & Calibración*): enrutador en cascada de dos niveles (`ConfidenceAwareRouter`), vía rápida local (System-1 / LAYA), escalado dinámico a supervisores superiores (System-2 / TypeSafe), umbrales adaptativos por nivel de riesgo operacional, detección de incertidumbre dual con abstención formal (`ABSTAIN`), análisis formal de calibración probabilística (ECE, MCE, Brier Score, curvas de Cobertura vs Riesgo Selectivo) y suite de evaluación multidimensional con 1.000+ escenarios procedurales.
 
@@ -18,12 +18,12 @@ $$\text{Semantic Judgment (JEV/LAYA Router)} \neq \text{Operational Policy (Poli
 
 ## ⚡ Inicio Rápido (Zero-Config / 100% Offline)
 
-Puedes probar JEV Reasoning Navigator inmediatamente **sin costo de API, sin registro y sin conexión externa**:
+Puedes probar PRAXEON inmediatamente **sin costo de API, sin registro y sin conexión externa**:
 
 ```bash
 # 1. Clonar e instalar en entorno virtual
-git clone https://github.com/AndreuVM/jev-reasoning-navigator.git
-cd jev-reasoning-navigator
+git clone https://github.com/AndreuVM/praxeon.git
+cd praxeon
 pip install -e ".[dev]"
 
 # 2. Ejecutar la demostración interactiva visual (sin APIs externas)
@@ -77,7 +77,7 @@ $$\text{Proposal} \to \text{Evidence} \to \text{Risk} \to \text{ProviderContext}
                                    | Propone candidatos
                                    v
 +-----------------------------------------------------------------------+
-|                 JEV Reasoning Navigator (v0.2.1 Runtime)               |
+|                 PRAXEON (Runtime Supervision Engine)                  |
 |                                                                       |
 |  1. EvidenceEngine        -> Verifica precondiciones empíricas        |
 |  2. RiskEngine            -> Análisis contextual de comandos y rutas  |
@@ -129,15 +129,15 @@ $$\text{Action} \to \text{Policy} \to \text{Signed Capability Receipt} \to \text
 
 ---
 
-## 4. Estructura de Paquetes v0.3-alpha
+## 4. Estructura de Paquetes
 
 ```
-jev-reasoning-navigator/
+praxeon/
 ├── .ci/                          # CI/CD Workflows y automatización
 │   └── workflows/
 │       ├── test.yml              # Tests multiplataforma (Python 3.11 & 3.12, Windows & Linux)
 │       └── security.yml          # Auditoría de seguridad con Bandit y comprobación de invariantes
-├── jev_navigator/
+├── praxeon/
 │   ├── domain/                   # Entidades puras y contratos inmutables (Pydantic v2)
 │   │   ├── goal.py               # Goal, SuccessCriterion, CriterionType, SubGoal
 │   │   ├── action.py             # ActionCandidate, ToolCall, BatchSemantics
@@ -186,9 +186,9 @@ jev-reasoning-navigator/
 │   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich y soporte multi-proveedor
 │   ├── live_agent.py             # Agente autónomo con Gemini supervisado en vivo
 │   └── dashboard.py              # Dashboard TUI interactivo en tiempo real
-├── tests/                        # 146 tests unitarios, de integración, endurecimiento, bypass y conformidad pasando al 100%
+├── tests/                        # 199 tests unitarios, de integración, endurecimiento, bypass y conformidad pasando al 100%
 ├── SECURITY.md                   # Política formal de divulgación y modelo de amenazas
-├── pyproject.toml                # v0.3.0a1
+├── pyproject.toml                # v0.4.0
 └── README.md
 ```
 
@@ -201,8 +201,8 @@ jev-reasoning-navigator/
 - Gestor de paquetes `uv` (recomendado) o `pip`
 
 ```bash
-git clone https://github.com/AndreuVM/jev-reasoning-navigator.git
-cd jev-reasoning-navigator
+git clone https://github.com/AndreuVM/praxeon.git
+cd praxeon
 
 # Instalación con uv
 uv sync
@@ -219,37 +219,37 @@ GEMINI_API_KEY=tu_gemini_api_key
 
 ## 6. Uso desde la Línea de Comandos (CLI)
 
-El CLI `jev-nav` provee acceso tanto a las capacidades analíticas de la v0.1 como a los nuevos motores de benchmark de la v0.2:
+El CLI `praxeon` (o su alias `jev-nav`) provee acceso tanto a las capacidades analíticas como a los motores de benchmark y supervisión:
 
-### A. Suite Formal de Benchmark y Ablaciones (`jev-nav benchmark`)
+### A. Suite Formal de Benchmark y Ablaciones (`praxeon benchmark`)
 ```bash
 # 1. Ejecutar benchmark completo con tabla de escenarios y métricas consolidadas
-uv run jev-nav benchmark
+uv run praxeon benchmark
 
 # 2. Ejecutar benchmark comparativo entre proveedores (Replay, LAYA, TypeSafe)
-uv run jev-nav benchmark --compare-providers
+uv run praxeon benchmark --compare-providers
 
 # 3. Ejecutar benchmark seleccionando un proveedor específico
-uv run jev-nav benchmark --provider laya
+uv run praxeon benchmark --provider laya
 
-# 4. Ejecutar estudio formal de ablaciones de las 5 capas
-uv run jev-nav benchmark --ablation
+# 4. Ejecutar estudio formal de ablaciones de las 6 capas
+uv run praxeon benchmark --ablation
 
 # 5. Comparativa cuantitativa de seguridad v0.1 vs v0.2
-uv run jev-nav benchmark --compare-v1
+uv run praxeon benchmark --compare-v1
 
 # 6. Exportar reporte de auditoría a JSON
-uv run jev-nav benchmark --output auditoria_report.json
+uv run praxeon benchmark --output auditoria_report.json
 ```
 
-### B. Dashboard TUI en Vivo (`jev-dash` / `jev-nav dashboard`)
+### B. Dashboard TUI en Vivo (`praxeon-dash` / `praxeon dashboard`)
 Monitor visual interactivo en terminal con 3 paneles sincronizados en tiempo real:
 ```bash
 # Modo demostración interactiva
-uv run jev-dash
+uv run praxeon-dash
 
 # Modo vivo conectando el agente LLM real
-uv run jev-dash --live --model gemini-3.6-flash --max-steps 25
+uv run praxeon-dash --live --model gemini-3.6-flash --max-steps 25
 ```
 
 | Parámetro | Tipo | Por defecto | Descripción |
@@ -260,28 +260,28 @@ uv run jev-dash --live --model gemini-3.6-flash --max-steps 25
 | `--max-steps` | `int` | `25` | Límite máximo de turnos permitidos. |
 | `--once` | `flag` | `False` | Ejecuta una única tarea y finaliza. |
 
-### C. Agente Autónomo Interactivo (`jev-live`)
+### C. Agente Autónomo Interactivo (`praxeon-live`)
 ```bash
 # Modo continuo interactivo
-uv run jev-live
+uv run praxeon-live
 
 # Ejecutar una tarea puntual con modelo específico
-uv run jev-live "Corregir función en parser.py" --model gemini-2.5-flash --once --steps 20
+uv run praxeon-live "Corregir función en parser.py" --model gemini-2.5-flash --once --steps 20
 ```
 
 ---
 
 ## 7. Servidor MCP (Model Context Protocol)
 
-`JEV-Reasoning-Navigator` incluye un servidor MCP compatible con clientes como **Antigravity IDE**, **Claude Desktop** y **Cursor**:
+`PRAXEON` incluye un servidor MCP compatible con clientes como **Antigravity IDE**, **Claude Desktop** y **Cursor**:
 
 ```json
 {
   "mcpServers": {
-    "jev-navigator": {
+    "praxeon": {
       "command": "uv",
-      "args": ["run", "jev-mcp"],
-      "cwd": "C:/ruta/al/proyecto/jev-reasoning-navigator"
+      "args": ["run", "praxeon-mcp"],
+      "cwd": "C:/ruta/al/proyecto/praxeon"
     }
   }
 }
@@ -302,12 +302,12 @@ uv run jev-live "Corregir función en parser.py" --model gemini-2.5-flash --once
 
 ---
 
-## 8. Uso Programático en Python (Runtime v0.3-alpha)
+## 8. Uso Programático en Python
 
 ```python
-from jev_navigator.domain import Goal, ActionCandidate, ToolCall
-from jev_navigator.providers import LayaProvider, TypeSafeAdapter
-from jev_navigator.runtime import Navigator, SecureExecutor
+from praxeon.domain import Goal, ActionCandidate, ToolCall
+from praxeon.providers import LayaProvider, TypeSafeAdapter
+from praxeon.runtime import Navigator, SecureExecutor
 
 # 1. Inicializar componentes desacoplados con proveedor a elección (LAYA o TypeSafe)
 # LAYA: Primitivas System-1 (choice, score, noul) con backends local, hosted o simulado
@@ -383,7 +383,7 @@ pytest -q
 
 ## 11. Suite de Evaluación Multidimensional (Fase 4)
 
-El módulo `jev_navigator.evaluation` implementa una batería completa y desacoplada de benchmarks para medir exhaustivamente la calidad de decisión, resistencia física y rendimiento del supervisor:
+El módulo `praxeon.evaluation` implementa una batería completa y desacoplada de benchmarks para medir exhaustivamente la calidad de decisión, resistencia física y rendimiento del supervisor:
 
 1. **Dataset Procedural con Partición Holdout (1.000+ escenarios)**:
    - Partición determinista libre de sobreajuste: **800 train / desarrollo** y **200 holdout / prueba** (`ScenarioCatalog.get_holdout_scenarios`).
@@ -399,7 +399,7 @@ El módulo `jev_navigator.evaluation` implementa una batería completa y desacop
    - *Config 2: Solo Provider JEV (Sin reglas operacionales)*
    - *Config 3: Solo Reglas / FailSafe (Sin razonamiento semántico)*
    - *Config 4: JEV + Reglas (Sin evidencia contextual)*
-   - *Config 5: JEV Reasoning Navigator Completo (v0.2/v0.3)*
+   - *Config 5: PRAXEON Completo (v0.2/v0.3/v0.4)*
    - *Config 6: Confidence-Aware Cascade Router (JEV + LAYA Handoff)*
    - Cada configuración computa automáticamente métricas de clasificación, seguridad física y valor económico neto ($\text{NavigatorValue}$).
 

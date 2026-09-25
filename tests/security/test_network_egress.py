@@ -1,8 +1,8 @@
 """Pruebas de seguridad para contención de red, egress policy y defensa contra SSRF (tests/security/test_network_egress.py)."""
 
 import pytest
-from jev_navigator.policy.egress import EgressMode, EgressPolicy
-from jev_navigator.runtime.sandbox import LocalProcessSandbox, SandboxViolation
+from praxeon.policy.egress import EgressMode, EgressPolicy
+from praxeon.runtime.sandbox import LocalProcessSandbox, SandboxViolation
 
 
 def test_network_binaries_blocked_when_network_disabled():

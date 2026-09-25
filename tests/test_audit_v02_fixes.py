@@ -1,9 +1,9 @@
 """Batería de pruebas unitarias para verificar la subsanación de los 13 hallazgos de la segunda auditoría técnica."""
 
 import pytest
-from jev_navigator.core.jev_engine import JEVEngine
-from jev_navigator.core.state_graph import StateGraph
-from jev_navigator.domain.models import (
+from praxeon.core.jev_engine import JEVEngine
+from praxeon.core.state_graph import StateGraph
+from praxeon.domain.models import (
     ActionCandidate,
     DecisionReceipt,
     DecisionStatus,
@@ -14,7 +14,7 @@ from jev_navigator.domain.models import (
     RiskLevel,
     ToolCall,
 )
-from jev_navigator.models.schema import (
+from praxeon.models.schema import (
     BatchSemantics,
     ConvergenceAnomaly,
     GroundingAnomaly,
@@ -25,15 +25,15 @@ from jev_navigator.models.schema import (
     StepType,
     Trajectory,
 )
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.policy.failsafe import FailSafePolicy
-from jev_navigator.policy.registry import ToolRegistry, ToolSpec
-from jev_navigator.providers.replay import ReplayReasoningProvider
-from jev_navigator.reasoning.completion import CompletionVerifier
-from jev_navigator.reasoning.loop_detector import LoopDetector
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.state import SessionState
+from praxeon.policy.engine import PolicyEngine
+from praxeon.policy.failsafe import FailSafePolicy
+from praxeon.policy.registry import ToolRegistry, ToolSpec
+from praxeon.providers.replay import ReplayReasoningProvider
+from praxeon.reasoning.completion import CompletionVerifier
+from praxeon.reasoning.loop_detector import LoopDetector
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.state import SessionState
 
 
 def test_audit_3_12_no_residual_embeddings():

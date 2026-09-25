@@ -30,7 +30,7 @@ jobs:
 
       - name: Run Bandit (Security Linter)
         run: |
-          bandit -r jev_navigator/ -ll -ii --exclude jev_navigator/tests
+          bandit -r praxeon/ -ll -ii --exclude praxeon/tests
 
       - name: Verify Formal Invariants and Capability Verification Suite
         run: |

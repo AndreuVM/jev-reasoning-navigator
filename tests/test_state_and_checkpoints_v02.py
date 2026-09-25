@@ -1,7 +1,7 @@
 """Pruebas unitarias para SessionState, CheckpointManager y Rollback en v0.2."""
 
 import pytest
-from jev_navigator.domain import (
+from praxeon.domain import (
     ActionCandidate,
     DecisionStatus,
     Evidence,
@@ -9,7 +9,7 @@ from jev_navigator.domain import (
     PolicyDecision,
     ToolCall,
 )
-from jev_navigator.runtime import CheckpointManager, SessionState
+from praxeon.runtime import CheckpointManager, SessionState
 
 
 def test_session_state_creation_and_step_recording():

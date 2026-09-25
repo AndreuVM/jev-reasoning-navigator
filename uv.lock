@@ -492,38 +492,6 @@ wheels = [
 ]
 
 [[package]]
-name = "jev-reasoning-navigator"
-version = "0.4.0a1"
-source = { editable = "." }
-dependencies = [
-    { name = "google-genai" },
-    { name = "networkx" },
-    { name = "pydantic" },
-    { name = "python-dotenv" },
-    { name = "rich" },
-    { name = "typesafe-sdk" },
-]
-
-[package.optional-dependencies]
-dev = [
-    { name = "pytest" },
-    { name = "pytest-asyncio" },
-]
-
-[package.metadata]
-requires-dist = [
-    { name = "google-genai", specifier = ">=2.24.0" },
-    { name = "networkx", specifier = ">=3.6.1" },
-    { name = "pydantic", specifier = ">=2.13.5" },
-    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
-    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
-    { name = "python-dotenv", specifier = ">=1.2.3" },
-    { name = "rich", specifier = ">=15.0.0" },
-    { name = "typesafe-sdk", specifier = ">=0.7.0" },
-]
-provides-extras = ["dev"]
-
-[[package]]
 name = "markdown-it-py"
 version = "4.2.0"
 source = { registry = "https://pypi.org/simple" }
@@ -570,6 +538,38 @@ sdist = { url = "https://files.pythonhosted.org/packages/f9/e2/3e91f31a7d2b083fe
 wheels = [
     { url = "https://files.pythonhosted.org/packages/54/20/4d324d65cc6d9205fabedc306948156824eb9f0ee1633355a8f7ec5c66bf/pluggy-1.6.0-py3-none-any.whl", hash = "sha256:e920276dd6813095e9377c0bc5566d94c932c33b27a3e3945d8389c374dd4746", size = 20538, upload-time = "2025-05-15T12:30:06.134Z" },
 ]
+
+[[package]]
+name = "praxeon"
+version = "0.4.0"
+source = { editable = "." }
+dependencies = [
+    { name = "google-genai" },
+    { name = "networkx" },
+    { name = "pydantic" },
+    { name = "python-dotenv" },
+    { name = "rich" },
+    { name = "typesafe-sdk" },
+]
+
+[package.optional-dependencies]
+dev = [
+    { name = "pytest" },
+    { name = "pytest-asyncio" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "google-genai", specifier = ">=2.24.0" },
+    { name = "networkx", specifier = ">=3.6.1" },
+    { name = "pydantic", specifier = ">=2.13.5" },
+    { name = "pytest", marker = "extra == 'dev'", specifier = ">=9.1.1" },
+    { name = "pytest-asyncio", marker = "extra == 'dev'", specifier = ">=0.25.0" },
+    { name = "python-dotenv", specifier = ">=1.2.3" },
+    { name = "rich", specifier = ">=15.0.0" },
+    { name = "typesafe-sdk", specifier = ">=0.7.0" },
+]
+provides-extras = ["dev"]
 
 [[package]]
 name = "pyasn1"

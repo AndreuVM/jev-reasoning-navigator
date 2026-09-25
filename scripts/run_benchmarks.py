@@ -29,13 +29,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
-from jev_navigator import __version__
-from jev_navigator.evaluation.metrics import compute_navigator_economic_value
-from jev_navigator.evaluation.runner import BenchmarkRunner
-from jev_navigator.evaluation.scenarios import ScenarioCatalog
-from jev_navigator.providers.laya import LayaProvider
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.providers.router import ConfidenceAwareRouter
+from praxeon import __version__
+from praxeon.evaluation.metrics import compute_navigator_economic_value
+from praxeon.evaluation.runner import BenchmarkRunner
+from praxeon.evaluation.scenarios import ScenarioCatalog
+from praxeon.providers.laya import LayaProvider
+from praxeon.providers.replay import ReplayProvider
+from praxeon.providers.router import ConfidenceAwareRouter
 
 console = Console(legacy_windows=False)
 
@@ -46,8 +46,8 @@ def run_all_benchmarks(output_dir: str = "benchmark_results") -> None:
     out_path.mkdir(parents=True, exist_ok=True)
 
     console.print(Panel.fit(
-        f"[bold cyan]🔬 JEV REASONING NAVIGATOR v{__version__}[/]\n"
-        "[bold white]Suite Completa de Evaluación Multidimensional y Benchmarks Reproducibles[/]\n"
+        f"[bold cyan]🔬 PRAXEON v{__version__}[/]\n"
+        "[bold white]Runtime supervision for autonomous AI agents[/]\n"
         "[dim]5 Dimensiones Especializadas + Dataset Holdout (1.000+ escenarios) + 6 Ablaciones[/]",
         border_style="cyan",
     ))
@@ -189,14 +189,16 @@ def run_all_benchmarks(output_dir: str = "benchmark_results") -> None:
     # -------------------------------------------------------------------------
     # Generar SUMMARY.md en Markdown
     # -------------------------------------------------------------------------
-    summary_md = f"""# Resultados Oficiales de Benchmarks — JEV Reasoning Navigator v{__version__}
+    summary_md = f"""# Resultados Oficiales de Benchmarks — PRAXEON v{__version__}
+
+**Runtime supervision for autonomous AI agents**
 
 Generado automáticamente: `{time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}`  
 Plataforma: `{sys.platform}` | Python: `{sys.version.split()[0]}`
 
 ## Resumen Ejecutivo
 
-JEV Reasoning Navigator evalúa formalmente la calidad decisional, resistencia física ante ataques y eficiencia operacional mediante 5 dimensiones desacopladas y un conjunto de **1.000+ escenarios procedurales** particionados en **800 Train** y **200 Holdout** libre de sobreajuste.
+PRAXEON evalúa formalmente la calidad decisional, resistencia física ante ataques y eficiencia operacional mediante 5 dimensiones desacopladas y un conjunto de **1.000+ escenarios procedurales** particionados en **800 Train** y **200 Holdout** libre de sobreajuste.
 
 ---
 
@@ -263,7 +265,7 @@ Evaluación en caliente sobre **{runtime_report.total_operations} operaciones co
 
 ## Conclusiones
 
-1. **Seguridad Absoluta en Acciones Destructivas:** En las configuraciones completas de JEV Reasoning Navigator (v0.2/v0.3/v0.4), la tasa de acciones destructivas permitidas es exactamente **0**, cerrando la brecha crítica de modelos sin supervisor o con fallback permisivo.
+1. **Seguridad Absoluta en Acciones Destructivas:** En las configuraciones completas de PRAXEON (v0.2/v0.3/v0.4), la tasa de acciones destructivas permitidas es exactamente **0**, cerrando la brecha crítica de modelos sin supervisor o con fallback permisivo.
 2. **Eficiencia en Runtime:** La sobrecarga introducida por la capa de supervisión es de **menos de 1 ms en mediana ($p50$)**, habilitando supervisión en tiempo real a alta velocidad.
 3. **Resistencia Físicamente Comprobada:** Ningún ataque de bypass (HMAC forjado, replay, symlink o egress) superó la barrera de enforcement en tiempo de ejecución.
 """

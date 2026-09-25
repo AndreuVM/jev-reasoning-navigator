@@ -13,16 +13,16 @@ Verifica formalmente:
 
 import os
 import pytest
-from jev_navigator.domain.action import ActionCandidate, ToolCall, compute_action_hash
-from jev_navigator.domain.decision import DecisionReceipt, DecisionStatus, PolicyDecision, compute_state_hash
-from jev_navigator.domain.goal import Goal
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.policy.risk import ToolRegistry
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.sandbox import DryRunSandbox, LocalProcessSandbox, SandboxViolation
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.action import ActionCandidate, ToolCall, compute_action_hash
+from praxeon.domain.decision import DecisionReceipt, DecisionStatus, PolicyDecision, compute_state_hash
+from praxeon.domain.goal import Goal
+from praxeon.policy.engine import PolicyEngine
+from praxeon.policy.risk import ToolRegistry
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.sandbox import DryRunSandbox, LocalProcessSandbox, SandboxViolation
+from praxeon.runtime.state import SessionState
 
 
 @pytest.fixture

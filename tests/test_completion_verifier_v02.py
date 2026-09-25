@@ -1,15 +1,15 @@
 """Pruebas unitarias para CompletionVerifier en v0.2."""
 
 import pytest
-from jev_navigator.domain import (
+from praxeon.domain import (
     ActionCandidate,
     Evidence,
     Goal,
     PolicyDecision,
     ToolCall,
 )
-from jev_navigator.reasoning import CompletionVerifier
-from jev_navigator.runtime import SessionState
+from praxeon.reasoning import CompletionVerifier
+from praxeon.runtime import SessionState
 
 
 def test_completion_verifier_identifies_finish_actions():

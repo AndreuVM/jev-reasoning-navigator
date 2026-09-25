@@ -12,21 +12,21 @@ Valida:
 """
 
 import pytest
-from jev_navigator.domain.models import DecisionStatus
-from jev_navigator.evaluation.runner import (
+from praxeon.domain.models import DecisionStatus
+from praxeon.evaluation.runner import (
     BenchmarkRunner,
     EnforcementBenchmarkReport,
     PolicyBenchmarkReport,
     RuntimeBenchmarkReport,
     TrajectoryBenchmarkReport,
 )
-from jev_navigator.evaluation.scenarios import (
+from praxeon.evaluation.scenarios import (
     BenchmarkScenario,
     ScenarioCatalog,
     TrajectoryScenario,
 )
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime.navigator import Navigator
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime.navigator import Navigator
 
 
 class TestHoldoutSplit:

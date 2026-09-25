@@ -29,26 +29,26 @@ from rich.panel import Panel
 from rich.table import Table
 from rich.text import Text
 
-from jev_navigator import __version__
-from jev_navigator.domain.action import ActionCandidate, ToolCall
-from jev_navigator.domain.decision import DecisionStatus
-from jev_navigator.domain.evidence import Evidence
-from jev_navigator.domain.goal import Goal
-from jev_navigator.providers.laya import LayaProvider
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.providers.router import ConfidenceAwareRouter
-from jev_navigator.reasoning.completion import CompletionVerifier
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.sandbox import LocalProcessSandbox
+from praxeon import __version__
+from praxeon.domain.action import ActionCandidate, ToolCall
+from praxeon.domain.decision import DecisionStatus
+from praxeon.domain.evidence import Evidence
+from praxeon.domain.goal import Goal
+from praxeon.providers.laya import LayaProvider
+from praxeon.providers.replay import ReplayProvider
+from praxeon.providers.router import ConfidenceAwareRouter
+from praxeon.reasoning.completion import CompletionVerifier
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.sandbox import LocalProcessSandbox
 
 console = Console(legacy_windows=False)
 
 
 def run_offline_demo():
     console.print(Panel.fit(
-        f"[bold cyan]🛡️ JEV REASONING NAVIGATOR v{__version__} — DEMO OFFLINE INTERACTIVA[/]\n"
-        "[bold white]Supervisión Cognitiva, Prevención de Bucles y Enforcement Físico de Runtime[/]\n"
+        f"[bold cyan]🛡️ PRAXEON v{__version__} — DEMO OFFLINE INTERACTIVA[/]\n"
+        "[bold white]Runtime supervision for autonomous AI agents[/]\n"
         "[dim green]✓ 100% Offline | Sin claves de API de pago | Ejecución determinista[/]",
         border_style="cyan",
     ))

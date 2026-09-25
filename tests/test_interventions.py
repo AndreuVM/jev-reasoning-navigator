@@ -4,10 +4,10 @@ import json
 from pathlib import Path
 import pytest
 
-from jev_navigator.core.intervention_policy import InterventionPolicy
-from jev_navigator.core.jev_engine import JEVEngine
-from jev_navigator.core.state_graph import StateGraph
-from jev_navigator.models.schema import (
+from praxeon.core.intervention_policy import InterventionPolicy
+from praxeon.core.jev_engine import JEVEngine
+from praxeon.core.state_graph import StateGraph
+from praxeon.models.schema import (
     InterventionDirective,
     InterventionLevel,
     JEVScore,
@@ -17,7 +17,7 @@ from jev_navigator.models.schema import (
     StepType,
     Trajectory,
 )
-from jev_navigator.models.trace import TraceParser
+from praxeon.models.trace import TraceParser
 
 DATA_DIR = Path(__file__).parent.parent / "data" / "loop_traces"
 

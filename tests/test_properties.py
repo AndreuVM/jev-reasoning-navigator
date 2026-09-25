@@ -12,7 +12,7 @@ Implementa los requisitos de la Sección 28.4 de la Auditoría Técnica:
 
 import time
 import pytest
-from jev_navigator.domain.models import (
+from praxeon.domain.models import (
     ActionCandidate,
     DecisionStatus,
     Goal,
@@ -22,21 +22,21 @@ from jev_navigator.domain.models import (
     RiskLevel,
     ToolCall,
 )
-from jev_navigator.evaluation.metrics import EvaluationMetrics, compute_navigator_economic_value
-from jev_navigator.evaluation.runner import BenchmarkRunner
-from jev_navigator.evaluation.scenarios import ScenarioCatalog
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.policy.failsafe import FailSafePolicy
-from jev_navigator.policy.risk import ToolRegistry
-from jev_navigator.policy.sanitizer import DataSanitizer
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.providers.resilience import CircuitBreaker, CircuitState
-from jev_navigator.reasoning.grounding import EvidenceEngine
-from jev_navigator.reasoning.risk import RiskEngine
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.state import SessionState
-from jev_navigator.runtime.telemetry import DecisionEvent, EventBus
+from praxeon.evaluation.metrics import EvaluationMetrics, compute_navigator_economic_value
+from praxeon.evaluation.runner import BenchmarkRunner
+from praxeon.evaluation.scenarios import ScenarioCatalog
+from praxeon.policy.engine import PolicyEngine
+from praxeon.policy.failsafe import FailSafePolicy
+from praxeon.policy.risk import ToolRegistry
+from praxeon.policy.sanitizer import DataSanitizer
+from praxeon.providers.replay import ReplayProvider
+from praxeon.providers.resilience import CircuitBreaker, CircuitState
+from praxeon.reasoning.grounding import EvidenceEngine
+from praxeon.reasoning.risk import RiskEngine
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.state import SessionState
+from praxeon.runtime.telemetry import DecisionEvent, EventBus
 
 
 def test_property_forbidden_tool_never_executed():

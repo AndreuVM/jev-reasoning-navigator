@@ -10,13 +10,13 @@ Verifica:
 
 import pytest
 
-from jev_navigator.domain.models import DecisionStatus
-from jev_navigator.evaluation.calibration import (
+from praxeon.domain.models import DecisionStatus
+from praxeon.evaluation.calibration import (
     CalibrationCalculator,
     CalibrationMetrics,
     SelectiveRiskCurve,
 )
-from jev_navigator.evaluation.metrics import MetricsCalculator
+from praxeon.evaluation.metrics import MetricsCalculator
 
 
 def test_brier_score_known_values():

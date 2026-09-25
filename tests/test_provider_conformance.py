@@ -11,17 +11,17 @@ import pytest
 from datetime import datetime
 from typing import List
 
-from jev_navigator.domain.action import ActionCandidate, ToolCall
-from jev_navigator.domain.assessment import ProviderAssessment
-from jev_navigator.domain.decision import DecisionStatus, PolicyDecision
-from jev_navigator.domain.evidence import Evidence
-from jev_navigator.domain.goal import Goal
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.providers.context import ProviderContext, ProviderContextBuilder
-from jev_navigator.providers.laya import LayaProvider
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.providers.typesafe import TypeSafeAdapter
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.action import ActionCandidate, ToolCall
+from praxeon.domain.assessment import ProviderAssessment
+from praxeon.domain.decision import DecisionStatus, PolicyDecision
+from praxeon.domain.evidence import Evidence
+from praxeon.domain.goal import Goal
+from praxeon.policy.engine import PolicyEngine
+from praxeon.providers.context import ProviderContext, ProviderContextBuilder
+from praxeon.providers.laya import LayaProvider
+from praxeon.providers.replay import ReplayProvider
+from praxeon.providers.typesafe import TypeSafeAdapter
+from praxeon.runtime.state import SessionState
 
 
 @pytest.fixture

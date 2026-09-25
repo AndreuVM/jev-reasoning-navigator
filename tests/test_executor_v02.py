@@ -1,7 +1,7 @@
 """Pruebas unitarias para SecureExecutor y PolicyViolation en v0.2."""
 
 import pytest
-from jev_navigator.domain import (
+from praxeon.domain import (
     ActionCandidate,
     DecisionReceipt,
     DecisionStatus,
@@ -10,7 +10,7 @@ from jev_navigator.domain import (
     ToolCall,
     compute_action_hash,
 )
-from jev_navigator.runtime import PolicyViolation, SecureExecutor, SessionState
+from praxeon.runtime import PolicyViolation, SecureExecutor, SessionState
 
 
 def test_executor_blocks_unauthorized_decision_with_policy_violation():

@@ -4,10 +4,10 @@ import io
 import json
 import sys
 import pytest
-from jev_navigator.domain import Goal
-from jev_navigator.interceptor.mcp_bridge import MCPBridge
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.runtime import Navigator, SecureExecutor
+from praxeon.domain import Goal
+from praxeon.interceptor.mcp_bridge import MCPBridge
+from praxeon.providers.replay import ReplayProvider
+from praxeon.runtime import Navigator, SecureExecutor
 
 
 @pytest.fixture

@@ -13,17 +13,17 @@ Verifica la arquitectura JEV-as-a-Judge de dos niveles:
 from typing import Any, List
 import pytest
 
-from jev_navigator.domain.action import ActionCandidate, ToolCall
-from jev_navigator.domain.assessment import ProviderAssessment, RiskAssessment, RiskLevel
-from jev_navigator.domain.decision import DecisionStatus
-from jev_navigator.domain.goal import Goal
-from jev_navigator.providers.base import BaseReasoningProvider
-from jev_navigator.providers.router import (
+from praxeon.domain.action import ActionCandidate, ToolCall
+from praxeon.domain.assessment import ProviderAssessment, RiskAssessment, RiskLevel
+from praxeon.domain.decision import DecisionStatus
+from praxeon.domain.goal import Goal
+from praxeon.providers.base import BaseReasoningProvider
+from praxeon.providers.router import (
     ConfidenceAwareRouter,
     RoutingStrategy,
     RoutingTelemetry,
 )
-from jev_navigator.runtime.navigator import Navigator
+from praxeon.runtime.navigator import Navigator
 
 
 class MockReasoningProvider(BaseReasoningProvider):

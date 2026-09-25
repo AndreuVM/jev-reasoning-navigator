@@ -15,8 +15,8 @@ import tempfile
 import time
 import pytest
 
-from jev_navigator.domain.action import ActionCandidate, ToolCall, compute_action_hash
-from jev_navigator.domain.decision import (
+from praxeon.domain.action import ActionCandidate, ToolCall, compute_action_hash
+from praxeon.domain.decision import (
     DecisionReceipt,
     DecisionStatus,
     PolicyDecision,
@@ -24,16 +24,16 @@ from jev_navigator.domain.decision import (
     compute_state_hash,
     verify_receipt_signature,
 )
-from jev_navigator.domain.goal import CriterionType, Goal, SuccessCriterion
-from jev_navigator.policy.engine import PolicyEngine
-from jev_navigator.policy.permissions import HumanApprovalTicket, PermissionManager
-from jev_navigator.providers.replay import ReplayProvider
-from jev_navigator.reasoning.completion import CompletionVerifier, CriterionStatus
-from jev_navigator.runtime.executor import PolicyViolation, SecureExecutor
-from jev_navigator.runtime.navigator import Navigator
-from jev_navigator.runtime.nonce_store import InMemoryNonceStore
-from jev_navigator.runtime.sandbox import LocalProcessSandbox, SandboxViolation
-from jev_navigator.runtime.state import SessionState
+from praxeon.domain.goal import CriterionType, Goal, SuccessCriterion
+from praxeon.policy.engine import PolicyEngine
+from praxeon.policy.permissions import HumanApprovalTicket, PermissionManager
+from praxeon.providers.replay import ReplayProvider
+from praxeon.reasoning.completion import CompletionVerifier, CriterionStatus
+from praxeon.runtime.executor import PolicyViolation, SecureExecutor
+from praxeon.runtime.navigator import Navigator
+from praxeon.runtime.nonce_store import InMemoryNonceStore
+from praxeon.runtime.sandbox import LocalProcessSandbox, SandboxViolation
+from praxeon.runtime.state import SessionState
 
 
 @pytest.fixture
