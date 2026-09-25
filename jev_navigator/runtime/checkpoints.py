@@ -54,10 +54,27 @@ class CheckpointManager:
             return None
         return list(self._checkpoints.values())[-1]
 
+    def get_genesis_checkpoint(self) -> Optional[Checkpoint]:
+        """Devuelve el checkpoint inicial (génesis) de la sesión."""
+        if not self._checkpoints:
+            return None
+        return list(self._checkpoints.values())[0]
+
+    def restore_checkpoint(
+        self,
+        checkpoint_id: str,
+        current_state: SessionState,
+        culprit_tool: Optional[str] = None,
+        reason: str = "Restauración de checkpoint",
+    ) -> SessionState:
+        """Restaura el estado a partir de un checkpoint registrado."""
+        return self.rollback(checkpoint_id, current_state, culprit_tool=culprit_tool, reason=reason)
+
     def rollback(
         self,
         checkpoint_id: str,
         current_state: SessionState,
+
         culprit_tool: Optional[str] = None,
         reason: str = "Backtracking por degradación de trayectoria",
     ) -> SessionState:

@@ -22,6 +22,7 @@ class Evidence(BaseModel):
     source_step_id: Optional[str] = None
     source_type: Literal["tool_observation", "user_input", "system", "external_source"] = "tool_observation"
     claim: str
-    content_hash: str
+    content_hash: str = Field(default="")
     confidence: float = 1.0
     claims: List[Claim] = Field(default_factory=list)
+

@@ -11,13 +11,35 @@ from jev_navigator.evaluation.metrics import (
     compute_navigator_economic_value,
 )
 from jev_navigator.evaluation.reports import ReportGenerator
-from jev_navigator.evaluation.runner import BenchmarkRunner, ProviderComparisonReport
-from jev_navigator.evaluation.scenarios import BenchmarkScenario, ScenarioCatalog
+from jev_navigator.evaluation.runner import (
+    BenchmarkReport,
+    BenchmarkRunner,
+    EnforcementBenchmarkReport,
+    PolicyBenchmarkReport,
+    ProviderComparisonReport,
+    RuntimeBenchmarkReport,
+    ScenarioResult,
+    TrajectoryBenchmarkReport,
+)
+from jev_navigator.evaluation.scenarios import (
+    BenchmarkScenario,
+    ScenarioCatalog,
+    TrajectoryScenario,
+    TrajectoryStepDefinition,
+)
 
 __all__ = [
     "BenchmarkScenario",
+    "TrajectoryScenario",
+    "TrajectoryStepDefinition",
     "ScenarioCatalog",
     "BenchmarkRunner",
+    "ScenarioResult",
+    "BenchmarkReport",
+    "PolicyBenchmarkReport",
+    "EnforcementBenchmarkReport",
+    "RuntimeBenchmarkReport",
+    "TrajectoryBenchmarkReport",
     "ProviderComparisonReport",
     "EvaluationMetrics",
     "MetricsCalculator",
@@ -29,3 +51,4 @@ __all__ = [
     "SelectiveRiskCurve",
     "SelectiveRiskPoint",
 ]
+

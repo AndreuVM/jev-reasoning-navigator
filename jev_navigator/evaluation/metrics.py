@@ -62,7 +62,13 @@ class EvaluationMetrics(BaseModel):
     escalation_rate: Optional[float] = None
     provider_disagreement_rate: Optional[float] = None
 
+    @property
+    def economic_value(self) -> Dict[str, float]:
+        """Calcula el valor económico neto del supervisor según la Sección 20."""
+        return compute_navigator_economic_value(self)
+
     def to_summary_dict(self) -> Dict[str, Any]:
+
         """Devuelve un resumen plano legible para reportes y tablas."""
         summary = {
             "Total Escenarios": self.total_scenarios,

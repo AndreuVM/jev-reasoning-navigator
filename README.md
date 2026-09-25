@@ -329,57 +329,64 @@ if decision.status == "replan":
 
 ## 9. Verificación de la Suite de Pruebas e Invariantes
  
-Toda la arquitectura v0.3-alpha, los contratos formales de proveedores (`LayaProvider`, `TypeSafeAdapter`, `ReplayProvider`), el acotamiento de contexto y las propiedades de seguridad están respaldadas por **146 pruebas automatizadas al 100%**:
+Toda la arquitectura v0.4a1, los contratos formales de proveedores (`LayaProvider`, `TypeSafeAdapter`, `ReplayProvider`, `ConfidenceAwareRouter`), el acotamiento de contexto, las barreras de enforcement físico y la suite de evaluación multidimensional están respaldadas por **199 pruebas automatizadas al 100%**:
  
 ```bash
 pytest -q
-# ........................................................................ [ 49%]
-# ........................................................................ [ 98%]
-# ..                                                                       [100%]
-# 146 passed in 41.86s
+# .........s.............................................................. [ 36%]
+# ........................................................................ [ 72%]
+# ........................................................                 [100%]
+# 199 passed, 1 skipped in 46.43s
 ```
  
 ---
  
-## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.3-alpha)
+## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.3 / v0.4)
 
 - **Proveedor LAYA con Primitivas System-1 (`LayaProvider`)**:
   Inferencia probabilística desacoplada que calcula veredictos de clasificación (`choice`), estimación continua de avance (`score`), y probabilidades calibradas de bucle y fundamentación (`noul`). Soporta modos `local` (pesos de red locales), `hosted` (vía HTTP/RPC), `simulated` (determinista para test/CI) y selección automática `auto`, exponiendo metadatos completos de telemetría y reproducibilidad (`latency_ms`, `context_tokens`, `device`, `checkpoint_version`).
 - **Normalizador y Gestor de Presupuesto de Contexto (`ProviderContextBuilder`)**:
   Ventanas temporales acotadas (`max_history_steps`), control de presupuesto de tokens (`token_budget`), truncamiento seguro de observaciones extensas (`max_observation_chars`) con marcado formal `truncated: bool`, y exportación canónica para backends LAYA y TypeSafe.
-- **Escalado por Baja Confianza de Inferencia (*JEV-as-a-Judge*)**:
-  Filtro de confianza mínima en `PolicyEngine` (`min_confidence_threshold: 0.40`). Cualquier juicio emitido con baja confianza se enruta inmediatamente a `DecisionStatus.ABSTAIN` bajo el código `LOW_PROVIDER_CONFIDENCE_ESCALATE`, impidiendo falsos positivos por incertidumbre.
+- **Router en Cascada Sensible a la Confianza (`ConfidenceAwareRouter`)**:
+  Estrategia adaptativa de inferencia que evalúa primero con modelos ultrarrápidos (p.ej. LAYA) y deriva automáticamente a evaluadores más profundos si la confianza es inferior al umbral calibrado o existe riesgo operacional elevado.
 - **Firmas Criptográficas HMAC-SHA256 (`DecisionReceipt`)**:
   Autenticación matemática de cada capability emitido por la `PolicyEngine`, garantizando que ninguna acción sea ejecutada con recibos manipulados o apócrifos.
-- **Defensa Anti-Replay con Almacén Durable (`NonceStore`)**:
+- **Defensa Anti-Replay con Almacén Durable (`NonceStore` / `SqliteNonceStore`)**:
   Control concurrente de nonces únicos con caducidad temporal (`expires_at`) y poda automática periódica (`prune_expired`), impidiendo la reutilización de capabilities autorizados en el pasado.
-- **Autorización Humana RBAC de Alta Precisión (`HumanApprovalTicket`)**:
-  Tickets de confirmación humana obligatorios para comandos destructivos o llamadas de red, enlazados al hash criptográfico exacto de la acción y con expiración TTL.
-- **Sandbox con Defensa Anti-Symlink y Bloqueo de Red (`LocalProcessSandbox`)**:
-  Resolución física de rutas canónicas (`os.path.realpath`) para anular escapes de symlinks y directory traversal; bloqueo de comandos de red (`curl`, `wget`, `nc`, `ssh`) cuando `allow_network=False` y neutralización de variables proxy hacia `127.0.0.1:0`.
+- **Sandbox con Defensa Anti-Symlink y Política de Egress (`LocalProcessSandbox` / `ContainerSandbox`)**:
+  Resolución física de rutas canónicas (`os.path.realpath`) para anular escapes de symlinks y directory traversal; filtrado estricto de tráfico saliente (`EgressPolicy`) con soporte para bloqueo total (`block_all`), lista blanca de dominios y prevención de ataques SSRF a metadatos cloud (`169.254.169.254`).
 - **Verificación Estructurada Tipada de Completitud (`CompletionVerifier`)**:
   Evaluación formal contra criterios tipados (`CriterionType.FILE_EXISTS`, `TESTS_PASS`, `EXIT_CODE_ZERO`, `STATE_VALUE`, `CUSTOM`) retornando `CriterionStatus.VERIFIED` para impedir finalizaciones prematuras.
-- **Resiliencia y Circuit Breaker (`CircuitBreaker`)**:
-  Control de estados `CLOSED`, `OPEN` y `HALF_OPEN` con reintentos con backoff exponencial y jitter aleatorio, respetando cabeceras `Retry-After`.
-- **Sanitización de Límites de Confianza (`DataSanitizer`)**:
-  Enmascaramiento de credenciales, API keys, tokens JWT, claves privadas SSH/RSA, emails e IPs privadas, con envoltura de seguridad `<untrusted_content>` y truncamiento de payloads.
-- **Ontología y Afirmaciones de Evidencia (`Claim`)**:
-  Registro explícito de aserciones (`register_claim`) en `EvidenceEngine` para auditoría trazable de precondiciones y deducciones empíricas.
-- **Telemetría y Bus de Eventos Estructurado (`EventBus`)**:
-  Publicación sincrónica y persistencia JSONL de eventos tipados: `DecisionEvent`, `ObservationEvent`, `ToolExecutionEvent` e `InterventionEvent`.
-- **Modo Sombra (`Shadow Mode`)**:
-  Permite ejecutar el runtime en modo observador pasivo (`shadow_mode=True`), registrando discrepancias y telemetría sin bloquear físicamente las acciones del agente.
-- **Modelo de Retorno Económico ($\text{NavigatorValue}$)**:
-  $$\text{NavigatorValue} = \text{AvoidedFailureCost} - \text{NavigatorCost} - \text{AddedLatencyCost} - \text{FalseRejectPenalty}$$
-  Evaluado automáticamente en cada ejecución del benchmark.
-- **Benchmark Masivo Procedural (1.000+ Escenarios)**:
-  Generación determinista y reproducible de 1.000 o más escenarios normativos cruzando 12 categorías operativas vía CLI:
-  ```bash
-  python -m jev_navigator.cli benchmark --count 1000
-  ```
+- **Gestor de Checkpoints y Reversión Formal (`CheckpointManager`)**:
+  Creación determinista de snapshots de sesión con rollback ante ramas degenerativas, invalidación de descendientes y bloqueo de transiciones fallidas.
+
+---
+
+## 11. Suite de Evaluación Multidimensional (Fase 4)
+
+El módulo `jev_navigator.evaluation` implementa una batería completa y desacoplada de benchmarks para medir exhaustivamente la calidad de decisión, resistencia física y rendimiento del supervisor:
+
+1. **Dataset Procedural con Partición Holdout (1.000+ escenarios)**:
+   - Partición determinista libre de sobreajuste: **800 train / desarrollo** y **200 holdout / prueba** (`ScenarioCatalog.get_holdout_scenarios`).
+   - Distribución estratificada en 13 categorías (bucles de 1 a N saltos, fijación semántica, desfundamentación, comandos destructivos, caídas de proveedor y efectos laterales).
+2. **Las 5 Dimensiones de Benchmark Especializadas**:
+   - **Provider Benchmark**: Precisión, acuerdo inter-proveedor (*agreement rate*), concordancia decisional y latencias p50/p95 entre JEV, LAYA y el Router de Cascada.
+   - **Policy Benchmark**: Evaluación de decisiones (`ALLOW`, `BLOCK`, `REPLAN`, `ABSTAIN`), matrices de confusión, tasa de falsos permitidos (`false_allow_rate = 0.0%`) y precisión de bloqueo justificado.
+   - **Enforcement Benchmark**: Verificación de barrera física infranqueable (100% prevención de bypasses frente a firmas HMAC alteradas, ataques de replay, evasión por path traversal y violaciones de política egress SSRF).
+   - **Runtime Benchmark**: Rendimiento operacional en tiempo real, midiendo throughput (*ops/sec*) y distribución percentil de latencias (`p50`, `p95`, `p99`, `mean`).
+   - **Trajectory Benchmark**: Simulación de trayectorias multi-paso de agentes autónomos, validando la detección de bucles cíclicos, activación de rollbacks hacia checkpoints válidos, recuperación adaptativa (*recovery rate*) y prevención de finalizaciones prematuras.
+3. **Estudio de Ablación Cuantitativo (6 Configuraciones)**:
+   - *Config 1: Sin Supervisor (Baseline / Agente ciego)*
+   - *Config 2: Solo Provider JEV (Sin reglas operacionales)*
+   - *Config 3: Solo Reglas / FailSafe (Sin razonamiento semántico)*
+   - *Config 4: JEV + Reglas (Sin evidencia contextual)*
+   - *Config 5: JEV Reasoning Navigator Completo (v0.2/v0.3)*
+   - *Config 6: Confidence-Aware Cascade Router (JEV + LAYA Handoff)*
+   - Cada configuración computa automáticamente métricas de clasificación, seguridad física y valor económico neto ($\text{NavigatorValue}$).
 
 ---
 
 ## Licencia
 
 Distribuido bajo licencia MIT. Consulta `LICENSE` para más detalles.
+
