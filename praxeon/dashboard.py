@@ -101,13 +101,13 @@ class JEVDashboard:
         grid.add_column(justify="right", ratio=1)
 
         title_text = Text.from_markup(
-            "⚡ [bold magenta]TYPE-SAFE AI COGNITIVE SUPERVISOR[/] ⚡ [bold white]|[/] "
-            "[bold cyan]Centro de Control Anti-Alucinación[/]"
+            "⚡ [bold magenta]PRAXEON RUNTIME SUPERVISOR[/] ⚡ [bold white]|[/] "
+            "[bold cyan]Centro de Control y Supervisión de Runtime[/]"
         )
         subtitle_text = Text.from_markup(
             f"🎯 [bold yellow]Meta:[/] [white]{self.goal[:70]}[/]  "
             f"[dim]•  Modelo Agente:[/] [bold green]{self.model_name}[/]  "
-            f"[dim]•  Motor Supervisor:[/] [bold magenta]TypeSafe AI (System One - JEV)[/]"
+            f"[dim]•  Motor Supervisor:[/] [bold magenta]PRAXEON (LAYA / TypeSafe)[/]"
         )
 
         badge_status = f"[{self.supervisor_color}]● ESTADO: {self.supervisor_status}[/]"
