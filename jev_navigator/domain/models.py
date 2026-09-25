@@ -10,15 +10,19 @@ from jev_navigator.domain.decision import (
     DecisionReceipt,
     DecisionStatus,
     PolicyDecision,
+    compute_receipt_signature,
     compute_state_hash,
+    verify_receipt_signature,
 )
 from jev_navigator.domain.evidence import Claim, Evidence
-from jev_navigator.domain.goal import Goal
+from jev_navigator.domain.goal import CriterionType, Goal, SuccessCriterion
 from jev_navigator.domain.observation import Observation, ToolObservation
 from jev_navigator.domain.state import StateSnapshot, StateStepRecord, TrajectoryState
 
 __all__ = [
     "Goal",
+    "CriterionType",
+    "SuccessCriterion",
     "ToolCall",
     "ActionCandidate",
     "compute_action_hash",
@@ -32,6 +36,8 @@ __all__ = [
     "DecisionStatus",
     "PolicyDecision",
     "DecisionReceipt",
+    "compute_receipt_signature",
+    "verify_receipt_signature",
     "compute_state_hash",
     "Checkpoint",
     "ExecutionEnvironment",

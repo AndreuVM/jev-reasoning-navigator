@@ -11,6 +11,7 @@ from typing import Any, Dict, List, Optional, Set, Tuple
 from jev_navigator.domain.interfaces import ReasoningProvider
 from jev_navigator.domain.models import (
     ActionCandidate,
+    compute_receipt_signature,
     DecisionReceipt,
     DecisionStatus,
     Goal,
@@ -52,6 +53,10 @@ class Navigator:
         self.provider = provider
         self.policy_engine = policy_engine or PolicyEngine()
         self.executor = executor or SecureExecutor()
+        if self.executor.secret_key is None:
+            self.executor.secret_key = self.policy_engine.secret_key
+        self.secret_key = self.policy_engine.secret_key
+
         self.evidence_engine = evidence_engine or EvidenceEngine()
         self.risk_engine = risk_engine or RiskEngine()
         self.checkpoint_manager = checkpoint_manager or CheckpointManager()
@@ -91,13 +96,26 @@ class Navigator:
 
         return False
 
-    def confirm_action(self, action_id: str) -> None:
-        """Marca una acción sensible como confirmada explícitamente por el operador humano."""
-        self.policy_engine.permission_manager.confirm_action(action_id)
+    def confirm_action(
+        self,
+        action_id: str,
+        action_hash: Optional[str] = None,
+        approver_id: str = "operator",
+        ttl_seconds: Optional[float] = 300.0,
+        reason: Optional[str] = None,
+    ) -> Any:
+        """Marca una acción sensible como confirmada explícitamente emitiendo un ticket auditable."""
+        return self.policy_engine.permission_manager.confirm_action(
+            action_id=action_id,
+            action_hash=action_hash,
+            approver_id=approver_id,
+            ttl_seconds=ttl_seconds,
+            reason=reason,
+        )
 
-    def is_action_confirmed(self, action_id: str) -> bool:
+    def is_action_confirmed(self, action_id: str, action_hash: Optional[str] = None) -> bool:
         """Verifica si una acción cuenta con confirmación del operador humano."""
-        return self.policy_engine.permission_manager.is_action_confirmed(action_id)
+        return self.policy_engine.permission_manager.is_action_confirmed(action_id, action_hash=action_hash)
 
     def propose(self, actions: List[ActionCandidate]) -> List[ActionCandidate]:
         """Filtra y valida candidatos eliminando herramientas prohibidas en el estado actual."""
@@ -268,6 +286,17 @@ class Navigator:
             exec_receipt_data = receipt.model_dump()
             exec_receipt_data["decision_status"] = DecisionStatus.ALLOW
             exec_receipt_data["reason_codes"] = ["SHADOW_MODE_OVERRIDE"]
+            if self.secret_key:
+                exec_receipt_data["signature"] = compute_receipt_signature(
+                    secret_key=self.secret_key,
+                    decision_id=exec_receipt_data["decision_id"],
+                    session_id=exec_receipt_data["session_id"],
+                    action_hash=exec_receipt_data["action_hash"],
+                    state_hash=exec_receipt_data["state_hash"],
+                    nonce=exec_receipt_data["nonce"],
+                    decision_status=DecisionStatus.ALLOW,
+                    expires_at=exec_receipt_data.get("expires_at"),
+                )
             exec_receipt = DecisionReceipt(**exec_receipt_data)
 
         exec_decision = PolicyDecision(status=DecisionStatus.ALLOW) if self.shadow_mode else decision

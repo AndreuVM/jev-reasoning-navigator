@@ -3,6 +3,7 @@
 from datetime import datetime
 from enum import Enum
 import hashlib
+import hmac
 import json
 from typing import Any, Dict, List, Optional
 import uuid
@@ -46,6 +47,7 @@ class DecisionReceipt(BaseModel):
     action_hash: str
     nonce: str = Field(default_factory=lambda: uuid.uuid4().hex)
     signature: Optional[str] = None
+    expires_at: Optional[datetime] = None
 
     # 2. Proveedor
     provider_available: bool = True
@@ -83,6 +85,47 @@ class DecisionReceipt(BaseModel):
     def decision(self) -> DecisionStatus:
         """Alias para compatibilidad hacia atrás con v0.2 temprana."""
         return self.decision_status
+
+    def is_expired(self, now: Optional[datetime] = None) -> bool:
+        """Determina si el capability receipt ha superado su ventana temporal de validez."""
+        if self.expires_at is None:
+            return False
+        current_time = now or datetime.utcnow()
+        return current_time > self.expires_at
+
+
+def compute_receipt_signature(
+    secret_key: str,
+    decision_id: str,
+    session_id: str,
+    action_hash: str,
+    state_hash: str,
+    nonce: str,
+    decision_status: DecisionStatus,
+    expires_at: Optional[datetime] = None,
+) -> str:
+    """Calcula un HMAC-SHA256 para autenticar criptográficamente la emisión del capability por PolicyEngine."""
+    exp_str = expires_at.isoformat() if expires_at else "none"
+    status_val = decision_status.value if isinstance(decision_status, DecisionStatus) else str(decision_status)
+    payload = f"{decision_id}:{session_id}:{action_hash}:{state_hash}:{nonce}:{status_val}:{exp_str}"
+    return hmac.new(secret_key.encode("utf-8"), payload.encode("utf-8"), hashlib.sha256).hexdigest()
+
+
+def verify_receipt_signature(secret_key: str, receipt: DecisionReceipt) -> bool:
+    """Verifica de forma inmune a ataques de temporización si el recibo fue firmado con la clave del runtime."""
+    if not receipt.signature:
+        return False
+    expected = compute_receipt_signature(
+        secret_key=secret_key,
+        decision_id=receipt.decision_id,
+        session_id=receipt.session_id,
+        action_hash=receipt.action_hash,
+        state_hash=receipt.state_hash,
+        nonce=receipt.nonce,
+        decision_status=receipt.decision_status,
+        expires_at=receipt.expires_at,
+    )
+    return hmac.compare_digest(receipt.signature, expected)
 
 
 def compute_state_hash(state_dict: Dict[str, Any]) -> str:

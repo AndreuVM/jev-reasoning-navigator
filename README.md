@@ -1,35 +1,38 @@
-# JEV Reasoning Navigator v0.2.1
+# JEV Reasoning Navigator v0.2.2
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-130%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.2.1-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-137%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.2.2-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
-[![Security](https://img.shields.io/badge/security-sandbox%20isolated-green.svg)]()
+[![Security](https://img.shields.io/badge/security-sandbox%20hardened-green.svg)]()
 [![TypeSafe AI](https://img.shields.io/badge/engine-TypeSafe%20System%20One-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.2.1** a partir de rigurosas auditorías técnicas externas, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
-$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt} \neq \text{Isolated Sandbox (SecureExecutor)}$$
+Evolucionado en la **v0.2.2** a partir de rigurosas auditorías técnicas externas y el cierre de deuda técnica de la Fase 0, el sistema trasciende los clasificadores heurísticos de bucles para establecer una separación formal de responsabilidades:
+$$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Process Sandbox (SecureExecutor)}$$
 
 ---
 
-## 1. Axiomas y Principios Arquitectónicos de v0.2.1
+## 1. Axiomas y Principios Arquitectónicos de v0.2.2
 
 1. **Juicio Semántico $\neq$ Política Operacional:**
    Una acción puede tener una probabilidad semántica de éxito elevada ($JEV = 0.95$) y ser al mismo tiempo operacionalmente inadmisible ($Risk = \text{CRITICAL}$, ej. `rm -rf /` o un archivo sensible `.env`). JEV emite juicio probabilístico; la `PolicyEngine` emite la decisión operativa (`ALLOW`, `BLOCK`, `REPLAN`, `ABSTAIN`).
-2. **Enforcement Físico Basado en Capabilities (Defensa contra Prompt Injection):**
-   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física criptográficamente ligada a nivel de runtime: exige obligatoriamente un `DecisionReceipt` válido y no consumido con `status == ALLOW`, `action_hash == hash(action)` y `state_hash == hash(state)`. Invocaciones directas, manipuladas o de repetición (*replay attacks*) levantan `PolicyViolation` inmediatamente antes de tocar el sistema operativo.
-3. **Aislamiento en Sandbox de Proceso y Sanitización:**
-   La ejecución física de herramientas del sistema (`run_command`, `read_file`, `edit_file`) no corre directamente en el host con `shell=True`. Se delega en `SandboxAdapter` (`LocalProcessSandbox` o `DryRunSandbox`), que depura y sanitiza las variables de entorno (eliminando API keys y credenciales del proceso hijo), confina los accesos al directorio de trabajo permitido (*jail containment* anti-directory traversal) y ejecuta procesos tokenizados con límites estrictos de timeout.
+2. **Enforcement Criptográfico Basado en Capabilities (HMAC-SHA256 y Anti-Replay):**
+   Las instrucciones textuales inyectadas en prompts (*"Por favor no uses delete_file"*) no constituyen seguridad. `SecureExecutor` actúa como una barrera física criptográficamente ligada a nivel de runtime: exige obligatoriamente un `DecisionReceipt` firmado mediante **HMAC-SHA256**, no expirado (`expires_at`), con `status == ALLOW`, `action_hash == hash(action)` y `state_hash == hash(state)`. Invocaciones directas, firmas manipuladas, capabilities caducados o intentos de reutilización (*replay attacks*) son bloqueados inmediatamente por un almacén de nonces con poda por TTL (`NonceStore`) levantando `PolicyViolation` antes de tocar el sistema operativo.
+3. **Contención en Sandbox de Proceso vs Aislamiento de Host ($\text{Policy Enforcement} \neq \text{Host Isolation}$):**
+   La ejecución física de herramientas del sistema (`run_command`, `read_file`, `edit_file`) no corre en el host con `shell=True`. Se delega en `SandboxAdapter` (`LocalProcessSandbox` o `DryRunSandbox`), que confina los accesos al workspace resolviendo enlaces simbólicos canónicos (`os.path.realpath`) para anular vectores de *symlink traversal* y *TOCTOU*, bloquea proactivamente comandos de egress de red (`curl`, `wget`, `nc`, `ssh`) cuando `allow_network=False`, neutraliza variables de entorno proxy hacia `127.0.0.1:0`, depura API keys del proceso hijo y ejecuta procesos tokenizados con límites estrictos de timeout.  
+   > **Nota sobre el Modelo de Amenazas:** `LocalProcessSandbox` endurece y restringe procesos locales a nivel de aplicación. No sustituye un hipervisor de virtualización a nivel de kernel, microVM (como Firecracker) o contenedor Linux (cgroups/namespaces/seccomp). Para despliegues multi-inquilino de código hostil o no confiable, se debe encapsular el ejecutor en contenedores o microVMs dedicadas.
 4. **La Indisponibilidad no Equivale a Neutralidad (Fail-Safe Estricto):**
    Si la red falla o el proveedor de inferencia semántica se cae, el sistema no asume un score neutro permisivo: aplica `FailSafePolicy` emitiendo `ABSTAIN` para acciones de bajo riesgo o `BLOCK` inmediato para acciones destructivas ($FalseAllowRate = 0.0\%$).
 5. **Erradicación de Alucinaciones en Herramientas de Observación:**
    Invocaciones como `read_file("archivo_inventado.py")` parten de premisas 100% alucinadas. `EvidenceEngine` valida que existan observaciones previas antes de permitir acciones dependientes y descalifica evidencias obsoletas cuando ocurren mutaciones (*stale state defense*).
-6. **Anti-Premature Finish y Verificación Estructurada:**
-   `CompletionVerifier` impide que el agente declare victoria prematura (`finish => highJEV`) sin antes validar formalmente que todos los `Goal.success_criteria` estén respaldados por evidencias empíricas comprobadas y resultados estructurados exitosos.
-7. **Backtracking Formal y Recuperación de Estado:**
+6. **Anti-Premature Finish y Verificación Estructurada de Criterios:**
+   `CompletionVerifier` impide que el agente declare victoria prematura (`finish => highJEV`) sin antes validar formalmente que todos los criterios obligatorios (`CriterionType.FILE_EXISTS`, `TESTS_PASS`, `EXIT_CODE_ZERO`, `STATE_VALUE`, `CUSTOM`) cuenten con evidencias empíricas demostradas en disco o traza con estado `VERIFIED`.
+7. **Autorización Humana Auditable con Ligadura de Hash y TTL:**
+   `PermissionManager` expide tickets auditables `HumanApprovalTicket` vinculados estrictamente al `action_hash` exacto y dotados de caducidad temporal (`expires_at`). Cualquier manipulación de argumentos invalida la confirmación de inmediato.
+8. **Backtracking Formal y Recuperación de Estado:**
    `CheckpointManager` captura snapshots canónicos SHA-256 de `SessionState`. Ante degradación o bucles, restaura el estado seguro, invalida los pasos descendientes y bloquea físicamente la herramienta o transición culpable.
 
 ---
@@ -97,7 +100,7 @@ $$\text{Action} \to \text{Policy} \to \text{Signed Capability Receipt} \to \text
 
 ---
 
-## 4. Estructura de Paquetes v0.2.1
+## 4. Estructura de Paquetes v0.2.2
 
 ```
 jev-reasoning-navigator/
@@ -107,12 +110,12 @@ jev-reasoning-navigator/
 │       └── security.yml          # Auditoría de seguridad con Bandit y comprobación de invariantes
 ├── jev_navigator/
 │   ├── domain/                   # Entidades puras y contratos inmutables (Pydantic v2)
-│   │   ├── goal.py               # Goal, SuccessCriterion, SubGoal
+│   │   ├── goal.py               # Goal, SuccessCriterion, CriterionType, SubGoal
 │   │   ├── action.py             # ActionCandidate, ToolCall, BatchSemantics
 │   │   ├── observation.py        # Observation, ToolOutput
 │   │   ├── evidence.py           # Evidence, GroundingStatus
 │   │   ├── assessment.py         # ProviderAssessment, JEVAssessment, RiskAssessment
-│   │   ├── decision.py           # PolicyDecision, DecisionReceipt, DecisionStatus, compute_action/state_hash
+│   │   ├── decision.py           # PolicyDecision, DecisionReceipt, HMAC signature verification, compute_action/state_hash
 │   │   ├── checkpoint.py         # Checkpoint, SessionSnapshot
 │   │   ├── state.py              # SessionState (hash canónico SHA-256 determinista)
 │   │   ├── models.py             # Re-exportador canónico de dominio
@@ -125,20 +128,21 @@ jev-reasoning-navigator/
 │   │   ├── loop_detector.py      # LoopDetector y análisis de anomalías
 │   │   ├── grounding.py          # GroundingVerifier (fundamentación empírica estricta)
 │   │   ├── risk.py               # RiskEngine (inspección de argumentos shell y archivos)
-│   │   └── completion.py         # CompletionVerifier estructurado (anti-premature finish)
+│   │   └── completion.py         # CompletionVerifier estructurado tipado (anti-premature finish)
 │   ├── policy/                   # Políticas operacionales de admisión
 │   │   ├── registry.py           # ToolRegistry y ToolSpec tipados
-│   │   ├── permissions.py        # PermissionManager y control de acceso RBAC
+│   │   ├── permissions.py        # PermissionManager, HumanApprovalTicket y RBAC
 │   │   ├── failsafe.py           # FailSafePolicy para caídas de red o incertidumbre
-│   │   └── engine.py             # PolicyEngine con soporte de confirmación humana
+│   │   └── engine.py             # PolicyEngine con soporte de confirmación humana y firma HMAC
 │   ├── runtime/                  # Estado, orquestación, checkpoints, sandbox y ejecución
 │   │   ├── state_store.py        # InMemoryStateStore y abstracciones de persistencia
+│   │   ├── nonce_store.py        # NonceStore con poda por TTL y defensa anti-replay duradera
 │   │   ├── checkpoints.py        # CheckpointManager y rollback con invalidación de descendientes
-│   │   ├── sandbox.py            # SandboxAdapter, LocalProcessSandbox (env scrubbing, jail) y DryRunSandbox
-│   │   ├── executor.py           # SecureExecutor con validación estricta de capabilities y no-replay
+│   │   ├── sandbox.py            # SandboxAdapter, LocalProcessSandbox (env scrubbing, realpath jail, network block) y DryRunSandbox
+│   │   ├── executor.py           # SecureExecutor con HMAC capability verification, no-replay y expiration check
 │   │   └── navigator.py          # Navigator (orquestador del pipeline completo)
 │   ├── integrations/             # Integraciones externas y protocolos
-│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.1
+│   │   └── mcp/                  # Servidor Model Context Protocol nativo v0.2.2
 │   │       └── server.py         # Servidor MCP stdio con registro formal de herramientas v2
 │   ├── evaluation/               # Framework de benchmarking y métricas
 │   │   ├── scenarios.py          # ScenarioCatalog y generador con ground truth
@@ -146,14 +150,14 @@ jev-reasoning-navigator/
 │   │   ├── reports.py            # Generador formal de informes de benchmark
 │   │   └── runner.py             # BenchmarkRunner con verificación de ejecución física en sandbox
 │   ├── interceptor/              # Servidor MCP y middleware de tiempo real
-│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + nativo v0.2.1)
+│   │   ├── mcp_bridge.py         # Servidor Model Context Protocol (v0.1 + nativo v0.2.2)
 │   │   └── proxy_middleware.py   # Middleware para agentes LLM en streaming
 │   ├── cli.py                    # Consola interactiva CLI enriquecida con Rich
 │   ├── live_agent.py             # Agente autónomo con Gemini supervisado en vivo
 │   └── dashboard.py              # Dashboard TUI interactivo en tiempo real
-├── tests/                        # 130 tests unitarios, de integración y de evasión/bypass pasando al 100%
+├── tests/                        # 137 tests unitarios, de integración, endurecimiento y bypass pasando al 100%
 ├── SECURITY.md                   # Política formal de divulgación y modelo de amenazas
-├── pyproject.toml                # v0.2.1
+├── pyproject.toml                # v0.2.2
 └── README.md
 ```
 
@@ -304,19 +308,29 @@ if decision.status == "replan":
 
 ## 9. Verificación de la Suite de Pruebas e Invariantes
  
-Toda la arquitectura v0.2.1, los contratos formales y las propiedades de seguridad están respaldadas por **122 pruebas automatizadas al 100%**:
+Toda la arquitectura v0.2.2, los contratos formales y las propiedades de seguridad están respaldadas por **137 pruebas automatizadas al 100%**:
  
 ```bash
 pytest -q
-# ........................................................................ [ 59%]
-# ..................................................                       [100%]
-# 122 passed in 38.01s
+# ........................................................................ [ 52%]
+# .................................................................        [100%]
+# 137 passed in 40.18s
 ```
  
 ---
  
-## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.2.1)
+## 10. Capacidades Avanzadas de Runtime y Gobernanza (v0.2.2)
  
+- **Firmas Criptográficas HMAC-SHA256 (`DecisionReceipt`)**:
+  Autenticación matemática de cada capability emitido por la `PolicyEngine`, garantizando que ninguna acción sea ejecutada con recibos manipulados o apócrifos.
+- **Defensa Anti-Replay con Almacén Durable (`NonceStore`)**:
+  Control concurrente de nonces únicos con caducidad temporal (`expires_at`) y poda automática periódica (`prune_expired`), impidiendo la reutilización de capabilities autorizados en el pasado.
+- **Autorización Humana RBAC de Alta Precisión (`HumanApprovalTicket`)**:
+  Tickets de confirmación humana obligatorios para comandos destructivos o llamadas de red, enlazados al hash criptográfico exacto de la acción y con expiración TTL.
+- **Sandbox con Defensa Anti-Symlink y Bloqueo de Red (`LocalProcessSandbox`)**:
+  Resolución física de rutas canónicas (`os.path.realpath`) para anular escapes de symlinks y directory traversal; bloqueo de comandos de red (`curl`, `wget`, `nc`, `ssh`) cuando `allow_network=False` y neutralización de variables proxy hacia `127.0.0.1:0`.
+- **Verificación Estructurada Tipada de Completitud (`CompletionVerifier`)**:
+  Evaluación formal contra criterios tipados (`CriterionType.FILE_EXISTS`, `TESTS_PASS`, `EXIT_CODE_ZERO`, `STATE_VALUE`, `CUSTOM`) retornando `CriterionStatus.VERIFIED` para impedir finalizaciones prematuras.
 - **Resiliencia y Circuit Breaker (`CircuitBreaker`)**:
   Control de estados `CLOSED`, `OPEN` y `HALF_OPEN` con reintentos con backoff exponencial y jitter aleatorio, respetando cabeceras `Retry-After`.
 - **Sanitización de Límites de Confianza (`DataSanitizer`)**:

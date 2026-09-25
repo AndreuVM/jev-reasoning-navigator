@@ -80,14 +80,37 @@ class LocalProcessSandbox(SandboxAdapter):
         "SSH_AUTH_SOCK",
     }
 
+    BLOCKED_NETWORK_COMMANDS: Set[str] = {
+        "curl",
+        "wget",
+        "nc",
+        "netcat",
+        "ncat",
+        "socat",
+        "ssh",
+        "scp",
+        "sftp",
+        "ftp",
+        "telnet",
+        "ping",
+        "tracert",
+        "traceroute",
+        "nslookup",
+        "dig",
+        "invoke-webrequest",
+        "invoke-restmethod",
+    }
+
     def __init__(
         self,
         workspace_root: Optional[str] = None,
         allow_external_cwd: bool = False,
+        allow_network: bool = False,
         extra_blocked_vars: Optional[Set[str]] = None,
     ):
-        self.workspace_root = os.path.abspath(workspace_root or os.getcwd())
+        self.workspace_root = os.path.realpath(workspace_root or os.getcwd())
         self.allow_external_cwd = allow_external_cwd
+        self.allow_network = allow_network
         self.blocked_vars = self.BLOCKED_ENV_VARS.union(extra_blocked_vars or set())
 
     def _sanitize_environment(self, custom_env: Optional[Dict[str, str]] = None) -> Dict[str, str]:
@@ -103,6 +126,16 @@ class LocalProcessSandbox(SandboxAdapter):
         clean_env["JEV_SANDBOX_ACTIVE"] = "1"
         clean_env["PYTHONUNBUFFERED"] = "1"
 
+        # Política de red: bloquear egress por variables proxy si allow_network es False
+        if not self.allow_network:
+            clean_env["http_proxy"] = "http://127.0.0.1:0"
+            clean_env["https_proxy"] = "http://127.0.0.1:0"
+            clean_env["all_proxy"] = "http://127.0.0.1:0"
+            clean_env["HTTP_PROXY"] = "http://127.0.0.1:0"
+            clean_env["HTTPS_PROXY"] = "http://127.0.0.1:0"
+            clean_env["ALL_PROXY"] = "http://127.0.0.1:0"
+            clean_env["NO_PROXY"] = ""
+
         if custom_env:
             for k, v in custom_env.items():
                 if not any(blocked in k.upper() for blocked in self.blocked_vars):
@@ -111,20 +144,42 @@ class LocalProcessSandbox(SandboxAdapter):
         return clean_env
 
     def _validate_path_containment(self, path: str) -> str:
-        """Valida que una ruta esté estrictamente contenida dentro del workspace_root delimitado."""
+        """Valida que una ruta esté estrictamente contenida dentro del workspace_root delimitado resolviendo symlinks."""
         if not path:
             raise SandboxViolation("Ruta de archivo vacía.")
 
-        abs_path = os.path.abspath(os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path)
+        # Resolver enlaces simbólicos canónicos para prevenir symlink traversal
+        candidate = os.path.join(self.workspace_root, path) if not os.path.isabs(path) else path
+        real_path = os.path.realpath(candidate)
+        canon_workspace = os.path.realpath(self.workspace_root)
+
         if not self.allow_external_cwd:
-            # Comprobar contención real
-            common = os.path.commonpath([self.workspace_root, abs_path])
-            if common != self.workspace_root:
+            try:
+                common = os.path.commonpath([canon_workspace, real_path])
+            except ValueError:
                 raise SandboxViolation(
-                    f"Evasión de ruta detectada: '{path}' resuelve en '{abs_path}', "
-                    f"fuera del workspace delimitado '{self.workspace_root}'."
+                    f"Evasión de ruta inter-volumen detectada: '{path}' resuelve en '{real_path}', "
+                    f"fuera del workspace delimitado '{canon_workspace}'."
                 )
-        return abs_path
+            if common != canon_workspace:
+                raise SandboxViolation(
+                    f"Evasión de ruta detectada (symlink/traversal): '{path}' resuelve en '{real_path}', "
+                    f"fuera del workspace delimitado '{canon_workspace}'."
+                )
+        return real_path
+
+    def _is_network_command(self, cmd_str: str) -> bool:
+        """Determina si un comando invoca utilidades o protocolos de red no autorizados."""
+        lowered = cmd_str.lower()
+        tokens = lowered.replace(";", " ").replace("|", " ").replace("&", " ").split()
+        for token in tokens:
+            # Eliminar prefijos de ruta
+            base_token = os.path.basename(token).replace(".exe", "")
+            if base_token in self.BLOCKED_NETWORK_COMMANDS:
+                return True
+        if "http://" in lowered or "https://" in lowered or "system.net.sockets" in lowered:
+            return True
+        return False
 
     def execute_command(
         self,
@@ -141,6 +196,12 @@ class LocalProcessSandbox(SandboxAdapter):
                 success=False,
                 is_error=True,
                 exit_code=1,
+            )
+
+        if not self.allow_network and self._is_network_command(cmd_str):
+            raise SandboxViolation(
+                f"Violación de política de red: Se intentó ejecutar el comando de red '{cmd_str[:60]}' "
+                "con allow_network=False en el sandbox local."
             )
 
         target_cwd = self._validate_path_containment(cwd) if cwd else self.workspace_root

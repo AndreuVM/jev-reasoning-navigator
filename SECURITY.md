@@ -4,7 +4,7 @@
 
 | Versión | Soportada | Estado de Mantenimiento |
 | :--- | :---: | :--- |
-| **0.2.x (v0.2.1)** | ✅ Sí | Versión activa principal con enforcement formal, capabilities criptográficos y sandboxing. |
+| **0.2.x (v0.2.2)** | ✅ Sí | Versión activa principal con enforcement formal, HMAC capabilities criptográficos, sandboxing y defensa anti-symlink. |
 | 0.1.x | ❌ No | Deprecada. Se recomienda migrar inmediatamente a la arquitectura desacoplada v0.2. |
 
 ---
@@ -16,25 +16,31 @@ JEV Reasoning Navigator asume un entorno de adversarios hostiles donde el modelo
 - **Alucinación de herramientas y parámetros** (invocaciones no fundamentadas empíricamente).
 - **Tentativas de manipulación de estado o replay attacks** (reutilización de autorizaciones pasadas).
 - **Evasión de límites del filesystem y ejecución arbitraria en el host**.
+- **Exfiltración o llamadas de red no autorizadas (Network Egress)**.
 
 Para mitigar estas amenazas, el runtime establece una **cadena formal de custodia de autorización**:
 
-$$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \to \text{PolicyEngine} \to \text{Bound DecisionCapability} \to \text{SecureExecutor} \to \text{Process Sandbox} \to \text{OS}$$
+$$\text{LLM Proposal} \to \text{Evidence Grounding} \to \text{Risk Assessment} \to \text{PolicyEngine} \to \text{Bound DecisionReceipt (HMAC)} \to \text{SecureExecutor} \to \text{Process Sandbox} \to \text{OS}$$
 
 ### Principios Fundamentales:
-1. **Separación de Responsabilidades:**
+1. **Separación de Responsabilidades y Delimitación de Host:**
    $$\text{Semantic Judgment (JEV)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Physical Execution (SecureExecutor)}$$
-2. **Capabilidades Ligadas Criptográficamente (DecisionReceipt):**
+   $$\text{Policy Enforcement} \neq \text{Host Isolation}$$
+   El runtime garantiza que ninguna política de seguridad sea evadida a nivel de aplicación. No obstante, `LocalProcessSandbox` confina procesos hijos locales; no es un hipervisor de máquina virtual ni un contenedor aislado a nivel de kernel. Para entornos multi-inquilino donde se ejecuten cargas de código hostil arbitrario, la ejecución debe envolverse en microVMs (p. ej. Firecracker) o contenedores con seccomp/cgroups.
+2. **Capabilities Ligados Criptográficamente (DecisionReceipt con HMAC-SHA256):**
    `SecureExecutor` no ejecuta ninguna herramienta física sin recibir un capability emitido por la `PolicyEngine` con:
    - `decision_status == ALLOW`
    - `action_hash == SHA256(action)`
    - `state_hash == SHA256(state)`
    - `session_id == active_session_id`
-   - `nonce` no consumido previamente (prevención estricta de replay attacks).
-3. **Aislamiento en Sandbox (`SandboxAdapter`):**
+   - `signature == HMAC-SHA256(secret_key, payload)` verificado de forma inmune a ataques de temporización (`hmac.compare_digest`).
+   - `is_expired() == False` validado contra la ventana de validez temporal (`expires_at` / TTL).
+   - `nonce` no consumido previamente verificado mediante `NonceStore` con poda automática (`prune_expired`).
+3. **Contención de Procesos en Sandbox (`LocalProcessSandbox`):**
    - **Depuración de Entorno:** Las variables sensibles (`TYPESAFE_API_KEY`, `GEMINI_API_KEY`, tokens y contraseñas) son purgadas del entorno del proceso hijo antes de cualquier ejecución.
-   - **Contención de Directorio (Jail Path):** Las rutas de archivos y comandos son forzadas a resolverse dentro del workspace delimitado, bloqueando accesos por traversals (`../`).
-   - **Prevención de Inyección Shell:** Ejecución sin `shell=True` arbitrario y con timeouts forzados.
+   - **Neutralización de Red y Proxies:** Si `allow_network=False` (por defecto), se bloquean comandos de egress (`curl`, `wget`, `nc`, `ssh`, etc.) y se redirigen las variables proxy (`HTTP_PROXY`, `HTTPS_PROXY`, `ALL_PROXY`) a `http://127.0.0.1:0`.
+   - **Contención de Directorio y Anti-Symlink (Jail Path):** Las rutas de archivos y comandos son forzadas a resolverse dentro del workspace delimitado utilizando `os.path.realpath` para desreferenciar symlinks físicos y prevenir fugas por enlaces simbólicos o traversals (`../`).
+   - **Prevención de Inyección Shell:** Ejecución tokenizada sin `shell=True` arbitrario y con timeouts forzados.
 4. **Sanitización de Salidas (`DataSanitizer`):**
    Las observaciones retornadas por las herramientas son analizadas y enmascaradas (eliminando credenciales, tokens JWT y claves privadas) y envueltas en delimitadores de confianza antes de ser inyectadas en la memoria del agente.
 

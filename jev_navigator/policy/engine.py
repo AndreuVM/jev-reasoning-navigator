@@ -4,6 +4,8 @@ Aplica la separación estricta:
 Semantic Judgment (JEV) != Operational Policy (PolicyEngine) != Physical Execution (Executor)
 """
 
+from datetime import datetime, timedelta
+import secrets
 import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 import uuid
@@ -18,6 +20,7 @@ from jev_navigator.domain.models import (
     RiskAssessment,
     RiskLevel,
     compute_action_hash,
+    compute_receipt_signature,
     compute_state_hash,
 )
 from jev_navigator.policy.failsafe import FailSafePolicy
@@ -35,12 +38,16 @@ class PolicyEngine:
         permission_manager: Optional[PermissionManager] = None,
         loop_threshold: float = 0.65,
         min_grounded_threshold: float = 0.35,
+        secret_key: Optional[str] = None,
+        receipt_ttl_seconds: float = 60.0,
     ):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.failsafe = failsafe or FailSafePolicy()
         self.permission_manager = permission_manager or PermissionManager(registry=self.registry)
         self.loop_threshold = loop_threshold
         self.min_grounded_threshold = min_grounded_threshold
+        self.secret_key = secret_key or secrets.token_hex(32)
+        self.receipt_ttl_seconds = receipt_ttl_seconds
 
     def evaluate_action(
         self,
@@ -130,12 +137,15 @@ class PolicyEngine:
                 )
 
         # 6. Evaluación de riesgo operacional
+        action_hash = compute_action_hash(action)
+        state_hash = compute_state_hash(state)
+
         if status is None:
             if risk.level == RiskLevel.CRITICAL:
                 status = DecisionStatus.BLOCK
                 reason_codes.append("CRITICAL_OPERATIONAL_RISK")
             elif risk.requires_confirmation:
-                if self.permission_manager.is_action_confirmed(action.id):
+                if self.permission_manager.is_action_confirmed(action.id, action_hash=action_hash):
                     status = DecisionStatus.ALLOW
                     reason_codes.append("HUMAN_CONFIRMED_ACTION")
                 else:
@@ -163,14 +173,32 @@ class PolicyEngine:
 
         latency_ms = (time.perf_counter() - start_time) * 1000.0
 
-        # Construcción exhaustiva del recibo según Contrato Cuadro 1 de Auditoría
+        # Construcción y firma criptográfica exhaustiva del capability receipt
+        decision_id = f"dec_{uuid.uuid4().hex[:12]}"
+        nonce = uuid.uuid4().hex
+        expires_at = datetime.utcnow() + timedelta(seconds=self.receipt_ttl_seconds)
+
+        signature = compute_receipt_signature(
+            secret_key=self.secret_key,
+            decision_id=decision_id,
+            session_id=session_id,
+            action_hash=action_hash,
+            state_hash=state_hash,
+            nonce=nonce,
+            decision_status=status,
+            expires_at=expires_at,
+        )
+
         receipt = DecisionReceipt(
             # Contexto
-            decision_id=f"dec_{uuid.uuid4().hex[:12]}",
+            decision_id=decision_id,
             session_id=session_id,
             action_id=action.id,
-            state_hash=compute_state_hash(state),
-            action_hash=compute_action_hash(action),
+            state_hash=state_hash,
+            action_hash=action_hash,
+            nonce=nonce,
+            signature=signature,
+            expires_at=expires_at,
             # Proveedor
             provider_available=provider_assessment.available if provider_assessment else False,
             model_identifier=provider_assessment.model if provider_assessment else None,

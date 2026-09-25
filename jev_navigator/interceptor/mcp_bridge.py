@@ -4,6 +4,7 @@ import json
 import sys
 from typing import Any, Dict, List, Optional
 
+from jev_navigator import __version__
 from jev_navigator.config import JEVConfig, default_config
 from jev_navigator.core.intervention_policy import InterventionPolicy
 from jev_navigator.core.jev_engine import JEVEngine
@@ -305,7 +306,7 @@ class MCPBridge:
                         },
                         "serverInfo": {
                             "name": "jev-navigator",
-                            "version": "0.2.1"
+                            "version": __version__
                         }
                     }
                 }

@@ -12,11 +12,18 @@ import time
 from typing import Any, Callable, Dict, Optional, Set
 from pydantic import BaseModel, ConfigDict
 from jev_navigator.domain.action import compute_action_hash
-from jev_navigator.domain.decision import compute_state_hash, DecisionReceipt, DecisionStatus, PolicyDecision
+from jev_navigator.domain.decision import (
+    compute_state_hash,
+    DecisionReceipt,
+    DecisionStatus,
+    PolicyDecision,
+    verify_receipt_signature,
+)
 from jev_navigator.domain.interfaces import Executor
 from jev_navigator.domain.models import ActionCandidate
 from jev_navigator.policy.risk import ToolRegistry
 from jev_navigator.policy.sanitizer import DataSanitizer
+from jev_navigator.runtime.nonce_store import InMemoryNonceStore, NonceStore
 from jev_navigator.runtime.sandbox import DryRunSandbox, LocalProcessSandbox, SandboxAdapter
 from jev_navigator.runtime.state import SessionState
 
@@ -58,6 +65,8 @@ class SecureExecutor(Executor):
         dry_run: bool = False,
         sanitizer: Optional[DataSanitizer] = None,
         strict_capability: bool = True,
+        secret_key: Optional[str] = None,
+        nonce_store: Optional[NonceStore] = None,
     ):
         self.registry = registry or ToolRegistry(register_defaults=True)
         self.dry_run = dry_run
@@ -67,6 +76,8 @@ class SecureExecutor(Executor):
             self.sandbox = sandbox or LocalProcessSandbox()
         self.sanitizer = sanitizer or DataSanitizer()
         self.strict_capability = strict_capability
+        self.secret_key = secret_key
+        self.nonce_store = nonce_store or InMemoryNonceStore()
         self._consumed_receipts: Set[str] = set()
         self._custom_handlers: Dict[str, Callable[[Dict[str, Any]], str]] = {}
 
@@ -157,17 +168,45 @@ class SecureExecutor(Executor):
                     receipt=receipt,
                 )
 
-            # Verificar no-reutilización (Replay attack prevention)
-            if receipt.decision_id in self._consumed_receipts:
+            # Verificar ventana de validez temporal (Expiración)
+            if receipt.is_expired():
                 raise PolicyViolation(
-                    f"Ejecución física DENEGADA para '{tool_name}': El recibo/capability '{receipt.decision_id}' "
-                    "ya ha sido consumido previamente (Replay attack prevention).",
+                    f"Ejecución física DENEGADA para '{tool_name}': El capability ha expirado "
+                    f"(expiró en: {receipt.expires_at.isoformat() if receipt.expires_at else 'N/A'}).",
                     action=action,
                     decision=decision,
                     receipt=receipt,
                 )
 
-            # Consumir el capability de forma atómica
+            # Verificar autenticidad mediante firma HMAC si se configuró clave secreta
+            if self.secret_key:
+                if not receipt.signature:
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': El capability carece de firma HMAC auténtica del emisor.",
+                        action=action,
+                        decision=decision,
+                        receipt=receipt,
+                    )
+                if not verify_receipt_signature(self.secret_key, receipt):
+                    raise PolicyViolation(
+                        f"Ejecución física DENEGADA para '{tool_name}': La firma HMAC del capability es inválida o ha sido manipulada.",
+                        action=action,
+                        decision=decision,
+                        receipt=receipt,
+                    )
+
+            # Verificar no-reutilización (Replay attack prevention mediante NonceStore)
+            if self.nonce_store.has_been_consumed(receipt.decision_id, receipt.nonce) or receipt.decision_id in self._consumed_receipts:
+                raise PolicyViolation(
+                    f"Ejecución física DENEGADA para '{tool_name}': El capability '{receipt.decision_id}' "
+                    f"con nonce '{receipt.nonce}' ya ha sido consumido previamente (Replay attack prevention).",
+                    action=action,
+                    decision=decision,
+                    receipt=receipt,
+                )
+
+            # Consumir el capability de forma atómica en NonceStore y registro local
+            self.nonce_store.consume(receipt.decision_id, receipt.nonce, expires_at=receipt.expires_at)
             self._consumed_receipts.add(receipt.decision_id)
 
         # 2. BARRERA DE ENFORCEMENT: Verificar si la herramienta está prohibida en el estado
