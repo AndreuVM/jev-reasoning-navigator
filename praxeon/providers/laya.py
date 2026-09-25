@@ -81,6 +81,11 @@ class LayaProvider(BaseReasoningProvider):
                 import laya  # type: ignore
                 return "local"
             except ImportError:
+                logger.info(
+                    "Backend 'local' solicitado pero 'laya' no está instalado. "
+                    "Ejecute 'pip install praxeon[laya]' o 'pip install laya' para inferencia neuronal con pesos locales. "
+                    "Utilizando motor local calibrado sin pesos externos."
+                )
                 return "simulated"
 
         # Modo 'auto'
@@ -153,13 +158,27 @@ class LayaProvider(BaseReasoningProvider):
             noul=noul_data,
         )
 
-    def _infer_primitives_local_sdk(self, ctx: ProviderContext) -> LayaDecisionPrimitives:
-        """Invoca el paquete local laya si está presente."""
-        import laya  # type: ignore
-        # La interfaz de Laya evalúa choice, score y noul
-        model = getattr(laya, "load_model", lambda m: None)(self.model_name)
-        prompt = ctx.formatted_prompt
+    def _get_local_model(self):
+        """Carga o reutiliza la instancia del modelo neuronal local LAYA."""
+        if getattr(self, "_loaded_model", None) is None:
+            import laya  # type: ignore
+            model_target = self.model_name
+            if model_target in ("laya-v1-calibrated", "default"):
+                model_target = os.getenv("LAYA_MODEL_PATH", "convaiinnovations/laya")
+            load_fn = getattr(laya, "load_model", None) or getattr(laya, "LayaModel", None)
+            if callable(load_fn):
+                self._loaded_model = load_fn(model_target)
+            else:
+                self._loaded_model = None
+        return self._loaded_model
 
+    def _infer_primitives_local_sdk(self, ctx: ProviderContext) -> LayaDecisionPrimitives:
+        """Invoca el paquete local laya con pesos neuronales cacheados."""
+        model = self._get_local_model()
+        if model is None:
+            return self._infer_primitives_calibrated(ctx)
+
+        prompt = ctx.formatted_prompt
         choice_res = model.choice(prompt, options=["ALLOW", "REPLAN", "BLOCK", "ABSTAIN"])
         score_res = model.score(prompt, scale=(0.0, 1.0))
         is_loop = model.noul(f"{prompt}\n¿La acción propuesta es un bucle o estancamiento repetitivo?")
