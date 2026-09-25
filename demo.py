@@ -18,12 +18,13 @@ from rich.console import Console
 from rich.panel import Panel
 from rich.table import Table
 
+from examples.demo_offline import run_offline_demo
 from jev_navigator.interceptor.proxy_middleware import JEVProxyMiddleware
 
 console = Console(legacy_windows=False)
 
 
-def run_demo():
+def run_legacy_demo():
     console.print(Panel.fit(
         "[bold cyan]🚀 DEMOSTRACIÓN: JEV-Reasoning-Navigator con TypeSafe AI[/]\n"
         "[dim]Supervisión en bloques y prevención activa de alucinaciones para LLMs[/]",
@@ -35,6 +36,7 @@ def run_demo():
 
     # Inicializar el middleware supervisor
     middleware = JEVProxyMiddleware(goal=goal)
+
 
     # 1. Simular un bloque con un intento de alucinación/bucle
     console.print("[bold]1. El LLM propone un bloque de 3 pasos para ejecutar:[/]")
@@ -95,4 +97,8 @@ def run_demo():
 
 
 if __name__ == "__main__":
-    run_demo()
+    if "--typesafe" in sys.argv:
+        run_legacy_demo()
+    else:
+        run_offline_demo()
+

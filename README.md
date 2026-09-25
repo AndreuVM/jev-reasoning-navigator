@@ -1,19 +1,38 @@
-# JEV Reasoning Navigator v0.4.0a1 (v0.4-experimental)
+# JEV Reasoning Navigator v0.4.0
 
 **Runtime de Seguridad, Gobernanza Cognitiva y Supervisión Formal para Agentes Autónomos de IA**
 
-[![Tests](https://img.shields.io/badge/tests-191%20passed-brightgreen.svg)]()
-[![Version](https://img.shields.io/badge/version-v0.4--experimental-blue.svg)]()
+[![Tests](https://img.shields.io/badge/tests-199%20passed-brightgreen.svg)]()
+[![Version](https://img.shields.io/badge/version-v0.4.0-blue.svg)]()
 [![Python](https://img.shields.io/badge/python-3.11+-blue.svg)]()
 [![Security](https://img.shields.io/badge/security-sandbox%20%26%20container%20hardened-green.svg)]()
 [![Providers](https://img.shields.io/badge/providers-TypeSafe%20%7C%20LAYA%20%7C%20CascadeRouter-purple.svg)]()
 
 `JEV Reasoning Navigator` es un middleware de supervisión formal y runtime de seguridad desacoplado para agentes autónomos basados en LLM (*ReAct*, *Tool-use*, *Tree-of-Thought*). 
 
-Evolucionado en la **v0.4-experimental (v0.4.0a1)** a partir de la implementación de la **Fase 3 (Confidence-Aware Routing & Calibración)** según el paper *«JEV-as-a-Judge: Accept When Confident, Escalate When Unsure»* (arXiv:2609.26550): enrutador en cascada de dos niveles (`ConfidenceAwareRouter`), vía rápida local (System-1 / LAYA), escalado dinámico a supervisores superiores (System-2 / TypeSafe), umbrales adaptativos por nivel de riesgo operacional, detección de incertidumbre dual con abstención formal (`ABSTAIN`), y análisis formal de calibración probabilística (ECE, MCE, Brier Score, curvas de Cobertura vs Riesgo Selectivo y AURC).
+Evolucionado a la versión **v0.4.0** a partir de la implementación de enrutamiento adaptativo (*Confidence-Aware Routing & Calibración*): enrutador en cascada de dos niveles (`ConfidenceAwareRouter`), vía rápida local (System-1 / LAYA), escalado dinámico a supervisores superiores (System-2 / TypeSafe), umbrales adaptativos por nivel de riesgo operacional, detección de incertidumbre dual con abstención formal (`ABSTAIN`), análisis formal de calibración probabilística (ECE, MCE, Brier Score, curvas de Cobertura vs Riesgo Selectivo) y suite de evaluación multidimensional con 1.000+ escenarios procedurales.
+
 $$\text{Semantic Judgment (JEV/LAYA Router)} \neq \text{Operational Policy (PolicyEngine)} \neq \text{Capability Receipt (HMAC)} \neq \text{Enforced Sandbox/Container (SecureExecutor)}$$
 
 ---
+
+## ⚡ Inicio Rápido (Zero-Config / 100% Offline)
+
+Puedes probar JEV Reasoning Navigator inmediatamente **sin costo de API, sin registro y sin conexión externa**:
+
+```bash
+# 1. Clonar e instalar en entorno virtual
+git clone https://github.com/AndreuVM/jev-reasoning-navigator.git
+cd jev-reasoning-navigator
+pip install -e ".[dev]"
+
+# 2. Ejecutar la demostración interactiva visual (sin APIs externas)
+python demo.py
+
+# 3. Ejecutar la suite completa de benchmarks reproducibles
+python scripts/run_benchmarks.py
+```
+
 
 ## 1. Axiomas y Principios Arquitectónicos de v0.4
 
@@ -386,7 +405,24 @@ El módulo `jev_navigator.evaluation` implementa una batería completa y desacop
 
 ---
 
+## 12. Limitaciones Actuales y Alcance Técnico
+
+De acuerdo con las mejores prácticas de rigor científico y divulgación técnica transparente, se documentan las siguientes limitaciones del sistema en su versión actual:
+
+1. **Aislamiento en Host Windows vs Linux (Paridad de Sandboxing):**
+   - En entornos Linux con Docker o Podman, `ContainerSandboxAdapter` proporciona aislamiento completo a nivel de kernel mediante namespaces de proceso, red, montajes de solo lectura y control estricto de cgroups.
+   - En hosts Windows nativos sin contenedor, `LocalProcessSandbox` protege el sistema resolviendo rutas canónicas (`os.path.realpath`) y bloqueando procesos no permitidos, pero el filtrado de red a nivel de socket depende de la política de egress sobre comandos invocados (`curl`, `wget`) y no de un firewall de kernel dedicado.
+2. **Horizonte de Contexto y Truncamiento (`ProviderContextBuilder`):**
+   - Con el fin de preservar latencias inferiores a 1 ms ($p50$), el constructor de contexto recorta observaciones voluminosas y acota la ventana temporal de pasos históricos. Si una evidencia empírica crucial ocurrió hace muchos turnos y no fue debidamente registrada en `EvidenceEngine`, el supervisor exigirá una re-inspección explícita antes de autorizar mutaciones dependientes.
+3. **Calibración de Umbrales en Dominios Específicos:**
+   - Los umbrales de confianza del `ConfidenceAwareRouter` ($\tau=0.70-0.75$) han sido calibrados contra el catálogo procedural de agentes de desarrollo de software y administración de sistemas. Para dominios altamente especializados (p.ej. finanzas, medicina o interacción con APIs propietarias opacas), se recomienda ejecutar `scripts/run_benchmarks.py` sobre un conjunto representativo para reajustar los umbrales de riesgo selectivo.
+4. **Fundamentación Empírica vs Verificación Formal de Algoritmos:**
+   - `EvidenceEngine` y `CompletionVerifier` garantizan que las precondiciones y criterios de éxito estén demostrados por observaciones observables en la sesión o en disco (archivos creados, logs de tests con exit code 0). No reemplazan a verificadores formales de teoremas (Z3, Coq, Lean) para la prueba matemática de corrección de código algorítmico arbitrario.
+
+---
+
 ## Licencia
 
 Distribuido bajo licencia MIT. Consulta `LICENSE` para más detalles.
+
 
