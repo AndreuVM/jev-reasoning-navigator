@@ -449,7 +449,7 @@ def create_agent_llm(
         target_model = model or PROVIDER_PRESETS["gemini"]["default_model"]
         return GeminiLLM(api_key=key, model=target_model)
 
-    elif prov_key == "simulator":
+    elif prov_key in ("simulator", "simulated"):
         return SimulatedAgentLLM(model_name=model or "simulated-agent-v04")
 
     else:

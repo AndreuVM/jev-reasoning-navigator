@@ -501,13 +501,14 @@ def main() -> None:
     elif args.command == "simulate":
         simulate_trace_execution(args.trace_path, config=cfg)
     elif args.command == "live":
-        from praxeon.live_agent import run_live_agent
-        run_live_agent(
-            task=getattr(args, "task", None),
+        from praxeon.live_agent import run_live_session
+        run_live_session(
+            initial_task=getattr(args, "task", None),
             max_steps=getattr(args, "max_steps", 25),
             config=cfg,
-            gemini_api_key=getattr(args, "agent_key", None),
+            api_key=getattr(args, "agent_key", None),
             model_name=getattr(args, "model", None),
+            once=getattr(args, "once", False),
             provider=getattr(args, "provider", None),
             base_url=getattr(args, "base_url", None),
         )

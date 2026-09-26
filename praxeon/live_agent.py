@@ -229,6 +229,17 @@ def run_live_agent(
     is_unlimited = (max_steps <= 0)
 
     session = session_context or SessionContextManager()
+
+    if not task or not str(task).strip():
+        try:
+            task = Prompt.ask("[bold cyan]🎯 Introduce el objetivo o tarea para el agente[/]").strip()
+        except (KeyboardInterrupt, EOFError):
+            console.print("\n[yellow]Operación cancelada por el usuario.[/]")
+            return (False, "Cancelado por el usuario", session, middleware or JEVProxyMiddleware(goal="Cancelado", config=cfg))
+        if not task:
+            console.print("[yellow]No se introdujo ninguna tarea. Finalizando.[/]")
+            return (False, "Tarea vacía", session, middleware or JEVProxyMiddleware(goal="Vacío", config=cfg))
+
     if middleware is None:
         middleware = JEVProxyMiddleware(goal=task, config=cfg)
     else:
@@ -549,14 +560,14 @@ def run_live_agent(
     )
 
     # 7. Renderizar métricas finales de ahorro de peticiones
-    savings_pct = max(0, int(((executed_steps - gemini_calls_count) / max(1, executed_steps)) * 100))
+    savings_pct = max(0, int(((executed_steps - llm_calls_count) / max(1, executed_steps)) * 100))
     metrics_table = Table(title="📊 Métricas de Eficiencia JEV y Ahorro de Cuota API", show_header=True)
     metrics_table.add_column("Métrica", style="bold white")
     metrics_table.add_column("Valor", justify="right", style="bold cyan")
     metrics_table.add_column("Impacto", style="green")
 
     metrics_table.add_row("Pasos cognitivos ejecutados", str(executed_steps), "Progreso real")
-    metrics_table.add_row("Llamadas a Gemini API", str(gemini_calls_count), f"Ahorro de ~{savings_pct}% en llamadas LLM")
+    metrics_table.add_row(f"Llamadas a LLM ({agent_llm.provider_name.upper()})", str(llm_calls_count), f"Ahorro de ~{savings_pct}% en llamadas LLM")
     metrics_table.add_row("Llamadas a TypeSafe AI", str(typesafe_calls_count), "Evaluaciones en lote (Chunking)")
     metrics_table.add_row("Intervenciones JEV / Alucinaciones evitadas", str(interventions_count), "Prevención de desvíos cognitivos")
 
@@ -597,15 +608,27 @@ def main() -> None:
     if args.chunk_size:
         cfg.evaluation_chunk_size = args.chunk_size
 
+def run_live_session(
+    initial_task: Optional[str] = None,
+    max_steps: int = 15,
+    config: Optional[JEVConfig] = None,
+    api_key: Optional[str] = None,
+    model_name: Optional[str] = None,
+    once: bool = False,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
+) -> None:
+    """Ejecuta una sesión interactiva continua con el agente LLM y el supervisor PRAXEON."""
+    cfg = config or default_config
+
     console.print(Panel(
-        "[bold cyan]🎯 JEV REASONING NAVIGATOR — MODO INTERACTIVO ITERATIVO[/]\n\n"
+        "[bold cyan]🎯 PRAXEON LIVE AGENT — MODO INTERACTIVO ITERATIVO[/]\n\n"
         "Supervisión continua con evaluación por bloques (chunking) y memoria acumulada entre tareas concatenadas.\n"
         "Introduce objetivos sucesivamente. Escribe [bold yellow]'reset'[/] para nueva sesión limpia, o [bold red]'salir'[/] para finalizar.",
-        title="🧭 [bold white]JEV Live Agent Session[/]",
+        title="🧭 [bold white]PRAXEON Live Agent Session[/]",
         border_style="cyan",
     ))
 
-    initial_task = args.goal or args.task
     is_first_iteration = True
     session_context = SessionContextManager()
     middleware = None
@@ -643,7 +666,7 @@ def main() -> None:
                         console.print("[yellow]⚠️ Por favor, introduce un objetivo válido o escribe 'salir' para terminar.[/]")
                         continue
                     if user_input.lower() in ("salir", "exit", "quit", "q"):
-                        console.print("[bold green]👋 Sesión interactiva de JEV finalizada. ¡Hasta pronto![/]")
+                        console.print("[bold green]👋 Sesión interactiva de PRAXEON finalizada. ¡Hasta pronto![/]")
                         return
                     current_task = user_input
                     break
@@ -659,24 +682,62 @@ def main() -> None:
 
         res = run_live_gemini_agent(
             task=current_task,
-            max_steps=args.steps,
+            max_steps=max_steps,
             config=cfg,
-            gemini_api_key=args.api_key,
-            model_name=args.model,
+            gemini_api_key=api_key,
+            model_name=model_name,
             session_context=session_context,
             middleware=middleware,
-            provider=args.provider,
-            base_url=args.base_url,
+            provider=provider,
+            base_url=base_url,
         )
         if isinstance(res, tuple) and len(res) >= 4:
             _, _, session_context, middleware = res
 
-        if args.once:
+        if once:
             break
 
         if sys.stdin.isatty():
             console.print("\n" + "━" * 70)
-            console.print(f"[bold green]✓ Tarea finalizada bajo supervisión JEV. Memoria de sesión ({len(session_context.task_records)} tareas) disponible para el siguiente objetivo.[/]")
+            console.print(f"[bold green]✓ Tarea finalizada bajo supervisión PRAXEON. Memoria de sesión ({len(session_context.task_records)} tareas) disponible para el siguiente objetivo.[/]")
+
+
+def main() -> None:
+    parser = argparse.ArgumentParser(description="Live Agent Loop supervisado por PRAXEON")
+    parser.add_argument("task", type=str, nargs="?", default=None, help="Objetivo o tarea del agente")
+    parser.add_argument("--goal", "-g", type=str, default=None, help="Objetivo o tarea del agente (alias de task)")
+    parser.add_argument("--once", action="store_true", help="Ejecutar solo el objetivo especificado y salir sin modo interactivo continuo")
+    parser.add_argument("--steps", type=int, default=15, help="Máximo número de pasos por tarea (usa 0 para modo ilimitado)")
+    parser.add_argument("--chunk-size", type=int, default=3, help="Tamaño de bloque para evaluación agrupada")
+    parser.add_argument("--typesafe", action="store_true", help="Utilizar TypeSafe AI como evaluador")
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default="auto",
+        choices=["auto", "groq", "ollama", "openrouter", "lmstudio", "openai", "gemini", "simulator"],
+        help="Proveedor del LLM del agente (auto, groq, ollama, openrouter, gemini, etc.)",
+    )
+    parser.add_argument("--base-url", type=str, default=None, help="URL base para servidor local (Ollama/LM Studio) o endpoint OpenAI-compatible")
+    parser.add_argument("--api-key", "--gemini-key", dest="api_key", type=str, default=None, help="Clave de API del LLM")
+    parser.add_argument("--model", type=str, default=None, help="Modelo LLM a utilizar")
+    args = parser.parse_args()
+
+    cfg = default_config.model_copy()
+    if args.typesafe:
+        cfg.use_typesafe_api = True
+    if args.chunk_size:
+        cfg.evaluation_chunk_size = args.chunk_size
+
+    run_live_session(
+        initial_task=args.goal or args.task,
+        max_steps=args.steps,
+        config=cfg,
+        api_key=args.api_key,
+        model_name=args.model,
+        once=args.once,
+        provider=args.provider,
+        base_url=args.base_url,
+    )
 
 
 if __name__ == "__main__":
