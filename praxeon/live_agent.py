@@ -257,9 +257,12 @@ def run_live_agent(
         console.print(f"[bold yellow]Aviso al inicializar LLM:[/] {e}. Usando simulador de agente.")
         agent_llm = SimulatedAgentLLM()
 
+    is_laya = getattr(cfg, "supervisor", "typesafe").lower() in ("laya", "laya-system1", "laya-v1")
+    sup_runtime = f"PRAXEON (LAYA System-1 [{getattr(cfg, 'laya_backend', 'auto')}])" if is_laya else "PRAXEON (TypeSafe AI / JEV)"
+
     console.print(Panel(
         f"[bold white]Tarea del Agente:[/] {task}\n"
-        f"[bold white]Supervisor Runtime:[/] PRAXEON (TypeSafe / LAYA)\n"
+        f"[bold white]Supervisor Runtime:[/] {sup_runtime}\n"
         f"[bold white]Modelo LLM Agente:[/] [bold cyan]{agent_llm.model_name}[/] ({agent_llm.provider_name.upper()})\n"
         f"[bold white]Límite de Pasos:[/] {'Ilimitado (hasta invocar finish)' if is_unlimited else f'{max_steps} pasos'}\n"
         f"[bold white]Tamaño de bloque (Chunk Size):[/] {cfg.evaluation_chunk_size} pasos por lote\n"
@@ -718,6 +721,26 @@ def main() -> None:
     parser.add_argument("--once", action="store_true", help="Ejecutar solo el objetivo especificado y salir sin modo interactivo continuo")
     parser.add_argument("--steps", type=int, default=15, help="Máximo número de pasos por tarea (usa 0 para modo ilimitado)")
     parser.add_argument("--chunk-size", type=int, default=3, help="Tamaño de bloque para evaluación agrupada")
+    parser.add_argument(
+        "--supervisor",
+        type=str,
+        default=os.getenv("PRAXEON_SUPERVISOR", "jev"),
+        choices=["jev", "laya", "typesafe"],
+        help="Motor supervisor cognitivo: 'jev' (TypeSafe AI Cloud) o 'laya' (LAYA System-1 Local/Hosted)",
+    )
+    parser.add_argument(
+        "--supervisor-model",
+        type=str,
+        default=None,
+        help="Modelo específico para el supervisor (ej. 'laya-v1-calibrated' o 'jev-latest')",
+    )
+    parser.add_argument(
+        "--laya-backend",
+        type=str,
+        default=os.getenv("LAYA_BACKEND", "auto"),
+        choices=["auto", "local", "simulated", "hosted"],
+        help="Backend para el supervisor LAYA ('auto', 'local', 'simulated', 'hosted')",
+    )
     parser.add_argument("--typesafe", action="store_true", help="Utilizar TypeSafe AI como evaluador")
     parser.add_argument(
         "--provider",
@@ -732,6 +755,12 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = default_config.model_copy()
+    if args.supervisor:
+        cfg.supervisor = args.supervisor
+    if args.supervisor_model:
+        cfg.provider.model = args.supervisor_model
+    if args.laya_backend:
+        cfg.laya_backend = args.laya_backend
     if args.typesafe:
         cfg.use_typesafe_api = True
     if args.chunk_size:

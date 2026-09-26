@@ -80,8 +80,12 @@ class JEVDashboard:
         self.last_observation = "Esperando primera acción..."
         self.agent_state_color = "cyan"
 
-        # Métricas directas de TypeSafe AI (System One)
-        self.supervisor_status = "🛡️ Centinela TypeSafe AI Activo"
+        # Métricas directas del Supervisor Cognitivo (TypeSafe / LAYA)
+        self.is_laya = getattr(self.config, "supervisor", "typesafe").lower() in ("laya", "laya-system1", "laya-v1")
+        if self.is_laya:
+            self.supervisor_status = f"🛡️ Centinela LAYA ({getattr(self.config, 'laya_backend', 'auto')}) Activo"
+        else:
+            self.supervisor_status = "🛡️ Centinela TypeSafe AI Activo"
         self.supervisor_color = "green"
         self.noul_prob = 0.12
         self.groundedness = "ALTA (Hechos observados en disco)"
@@ -104,10 +108,11 @@ class JEVDashboard:
             "⚡ [bold magenta]PRAXEON RUNTIME SUPERVISOR[/] ⚡ [bold white]|[/] "
             "[bold cyan]Centro de Control y Supervisión de Runtime[/]"
         )
+        sup_label = f"PRAXEON ({'LAYA System-1 [' + getattr(self.config, 'laya_backend', 'auto') + ']' if self.is_laya else 'TypeSafe JEV'})"
         subtitle_text = Text.from_markup(
             f"🎯 [bold yellow]Meta:[/] [white]{self.goal[:70]}[/]  "
             f"[dim]•  Modelo Agente:[/] [bold green]{self.model_name}[/]  "
-            f"[dim]•  Motor Supervisor:[/] [bold magenta]PRAXEON (LAYA / TypeSafe)[/]"
+            f"[dim]•  Motor Supervisor:[/] [bold magenta]{sup_label}[/]"
         )
 
         badge_status = f"[{self.supervisor_color}]● ESTADO: {self.supervisor_status}[/]"
@@ -204,9 +209,10 @@ class JEVDashboard:
             )
             table.add_row(dir_panel)
 
+        sup_title = "🧠 [bold magenta]Supervisor Cognitivo LAYA System-1[/]" if self.is_laya else "🧠 [bold magenta]Supervisor Cognitivo TypeSafe AI[/]"
         return Panel(
             table,
-            title="🧠 [bold magenta]Supervisor Cognitivo TypeSafe AI[/]",
+            title=sup_title,
             border_style="magenta",
             padding=(1, 1),
         )
@@ -1042,6 +1048,26 @@ def main():
     parser.add_argument("--task", type=str, default=None, help="Objetivo o tarea a visualizar")
     parser.add_argument("--live", action="store_true", help="Ejecutar en modo vivo con agente LLM")
     parser.add_argument(
+        "--supervisor",
+        type=str,
+        default=os.getenv("PRAXEON_SUPERVISOR", "jev"),
+        choices=["jev", "laya", "typesafe"],
+        help="Motor supervisor cognitivo: 'jev' (TypeSafe AI Cloud) o 'laya' (LAYA System-1 Local/Hosted)",
+    )
+    parser.add_argument(
+        "--supervisor-model",
+        type=str,
+        default=None,
+        help="Modelo específico para el supervisor (ej. 'laya-v1-calibrated' o 'jev-latest')",
+    )
+    parser.add_argument(
+        "--laya-backend",
+        type=str,
+        default=os.getenv("LAYA_BACKEND", "auto"),
+        choices=["auto", "local", "simulated", "hosted"],
+        help="Backend para el supervisor LAYA ('auto', 'local', 'simulated', 'hosted')",
+    )
+    parser.add_argument(
         "--provider",
         type=str,
         default=None,
@@ -1066,11 +1092,20 @@ def main():
     parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir")
     args = parser.parse_args()
 
+    cfg = default_config.model_copy()
+    if args.supervisor:
+        cfg.supervisor = args.supervisor
+    if args.supervisor_model:
+        cfg.provider.model = args.supervisor_model
+    if args.laya_backend:
+        cfg.laya_backend = args.laya_backend
+
     if args.live:
         run_visual_live(
             task=args.task,
             model_name=args.model,
             max_steps=args.max_steps,
+            config=cfg,
             once=args.once,
             provider=args.provider,
             base_url=args.base_url,

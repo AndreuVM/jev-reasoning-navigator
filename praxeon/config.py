@@ -13,11 +13,13 @@ from pydantic import BaseModel, Field, model_validator
 
 
 class ProviderConfig(BaseModel):
-    """Configuración del proveedor de inferencia semántica (TypeSafe / Replay)."""
+    """Configuración del proveedor de inferencia semántica (TypeSafe / LAYA / Replay)."""
+    name: str = Field(default="typesafe", description="Identificador del proveedor supervisor ('typesafe', 'jev', 'laya')")
     api_key: Optional[str] = Field(default=None, description="Clave de API para TypeSafe AI")
     use_api: bool = Field(default=False, description="Activar invocación real del proveedor")
     model: str = Field(default="jev-latest", description="Identificador del modelo de inferencia")
     base_url: Optional[str] = Field(default=None, description="URL base alternativa para el proveedor")
+    laya_backend: str = Field(default="auto", description="Backend para LAYA (auto, local, simulated, hosted)")
 
 
 class DecisionConfig(BaseModel):
@@ -205,6 +207,22 @@ class JEVConfig(BaseModel):
     def call_llm_only_on_intervention_or_chunk_end(self, value: bool) -> None:
         self.chunk.call_llm_only_on_intervention_or_chunk_end = value
 
+    @property
+    def supervisor(self) -> str:
+        return self.provider.name
+
+    @supervisor.setter
+    def supervisor(self, value: str) -> None:
+        self.provider.name = value
+
+    @property
+    def laya_backend(self) -> str:
+        return self.provider.laya_backend
+
+    @laya_backend.setter
+    def laya_backend(self, value: str) -> None:
+        self.provider.laya_backend = value
+
     @classmethod
     def from_env(cls, load_env_file: bool = False) -> "JEVConfig":
         """Instancia la configuración leyendo variables de entorno de forma explícita."""
@@ -215,15 +233,23 @@ class JEVConfig(BaseModel):
             except ImportError:
                 pass
 
+        supervisor_name = os.getenv("PRAXEON_SUPERVISOR", os.getenv("SUPERVISOR_PROVIDER", "typesafe")).lower()
         api_key = os.getenv("TYPESAFE_API_KEY")
         model = os.getenv("TYPESAFE_MODEL", "jev-latest")
+        laya_backend = os.getenv("LAYA_BACKEND", "auto")
+
+        if supervisor_name in ("laya", "laya-system1", "laya-v1"):
+            model = os.getenv("LAYA_MODEL", "laya-v1-calibrated")
+
         use_api = bool(api_key and os.getenv("USE_TYPESAFE_API", "true").lower() in ("true", "1", "yes"))
 
         return cls(
             provider=ProviderConfig(
+                name=supervisor_name,
                 api_key=api_key,
                 use_api=use_api,
                 model=model,
+                laya_backend=laya_backend,
             ),
             decision=DecisionConfig(
                 critical_jev_threshold=float(os.getenv("JEV_CRITICAL_THRESHOLD", "0.0")),

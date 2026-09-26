@@ -3,6 +3,7 @@
 import argparse
 import io
 import json
+import os
 from pathlib import Path
 import sys
 from typing import List, Optional
@@ -448,12 +449,52 @@ def main() -> None:
         help="Clave API del proveedor LLM para el agente",
     )
     dash_parser.add_argument("--model", type=str, default=None, help="Modelo LLM para modo vivo")
+    dash_parser.add_argument(
+        "--supervisor",
+        type=str,
+        default=os.getenv("PRAXEON_SUPERVISOR", "jev"),
+        choices=["jev", "laya", "typesafe"],
+        help="Motor supervisor cognitivo: 'jev' (TypeSafe AI Cloud) o 'laya' (LAYA System-1 Local/Hosted)",
+    )
+    dash_parser.add_argument(
+        "--supervisor-model",
+        type=str,
+        default=None,
+        help="Modelo específico para el supervisor (ej. 'laya-v1-calibrated' o 'jev-latest')",
+    )
+    dash_parser.add_argument(
+        "--laya-backend",
+        type=str,
+        default=os.getenv("LAYA_BACKEND", "auto"),
+        choices=["auto", "local", "simulated", "hosted"],
+        help="Backend para el supervisor LAYA ('auto', 'local', 'simulated', 'hosted')",
+    )
     dash_parser.add_argument("--max-steps", type=int, default=25, help="Número máximo de turnos permitidos")
     dash_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir inmediatamente sin modo interactivo continuo")
 
     # Subcomando live
     live_parser = subparsers.add_parser("live", help="Ejecuta el agente autónomo con supervisión interactiva PRAXEON")
     live_parser.add_argument("--task", type=str, default=None, help="Objetivo o descripción de la tarea a resolver")
+    live_parser.add_argument(
+        "--supervisor",
+        type=str,
+        default=os.getenv("PRAXEON_SUPERVISOR", "jev"),
+        choices=["jev", "laya", "typesafe"],
+        help="Motor supervisor cognitivo: 'jev' (TypeSafe AI Cloud) o 'laya' (LAYA System-1 Local/Hosted)",
+    )
+    live_parser.add_argument(
+        "--supervisor-model",
+        type=str,
+        default=None,
+        help="Modelo específico para el supervisor (ej. 'laya-v1-calibrated' o 'jev-latest')",
+    )
+    live_parser.add_argument(
+        "--laya-backend",
+        type=str,
+        default=os.getenv("LAYA_BACKEND", "auto"),
+        choices=["auto", "local", "simulated", "hosted"],
+        help="Backend para el supervisor LAYA ('auto', 'local', 'simulated', 'hosted')",
+    )
     live_parser.add_argument(
         "--provider",
         type=str,
@@ -490,6 +531,13 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = default_config.model_copy()
+    if getattr(args, "supervisor", None):
+        cfg.supervisor = args.supervisor
+    if getattr(args, "supervisor_model", None):
+        cfg.provider.model = args.supervisor_model
+    if getattr(args, "laya_backend", None):
+        cfg.laya_backend = args.laya_backend
+
     if args.command in ("analyze", "simulate") and getattr(args, "api_key", None):
         cfg.typesafe_api_key = args.api_key
         cfg.use_typesafe_api = True

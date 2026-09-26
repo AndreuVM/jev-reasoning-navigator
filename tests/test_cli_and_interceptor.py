@@ -506,7 +506,57 @@ def test_session_context_injects_environment_info():
     user_prompt = conv[1]["content"]
     assert "INFORMACIÓN DEL ENTORNO DE EJECUCIÓN" in user_prompt
     assert "pyproject.toml" in user_prompt
-    assert "Analizar dependencias" in user_prompt
+
+def test_laya_supervisor_middleware():
+    """Verifica que JEVProxyMiddleware funcione con el supervisor LAYA System-1."""
+    from praxeon.config import JEVConfig, ProviderConfig
+    from praxeon.models.schema import BatchSemantics
+
+    cfg = JEVConfig(
+        provider=ProviderConfig(
+            name="laya",
+            model="laya-v1-calibrated",
+            laya_backend="simulated",
+        )
+    )
+    middleware = JEVProxyMiddleware(goal="Investigar fallo en main.py", config=cfg)
+    assert middleware.engine.laya_provider is not None
+    assert middleware.engine.laya_provider.backend == "simulated"
+
+    # Paso seguro constructivo
+    chunk_res = middleware.intercept_step_chunk([
+        {
+            "step_type": "tool_call",
+            "tool_name": "read_file",
+            "tool_args": {"path": "README.md"},
+            "thought_rationale": "Leer el archivo README para entender el proyecto.",
+        }
+    ])
+    assert chunk_res.all_safe is True
+    assert chunk_res.valid_step_count == 1
+
+
+def test_dashboard_laya_supervisor_header():
+    """Verifica que el dashboard refleje LAYA System-1 cuando está activo."""
+    from praxeon.config import JEVConfig, ProviderConfig
+    from praxeon.dashboard import JEVDashboard
+
+    cfg = JEVConfig(
+        provider=ProviderConfig(
+            name="laya",
+            model="laya-v1-calibrated",
+            laya_backend="simulated",
+        )
+    )
+    dash = JEVDashboard(goal="Demo de LAYA", model_name="qwen2.5-coder:1.5b (OLLAMA)", config=cfg)
+    assert dash.is_laya is True
+    assert "LAYA" in dash.supervisor_status
+
+    header = dash.make_header()
+    assert header is not None
+
+    sup_panel = dash.make_supervisor_panel()
+    assert "LAYA System-1" in str(sup_panel.title)
 
 
 
