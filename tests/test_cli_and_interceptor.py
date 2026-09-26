@@ -588,6 +588,33 @@ def test_proxy_middleware_observational_loop_repetition():
     assert res3.loop_report.loop_detected is True
 
 
+def test_proxy_middleware_rejects_supervisor_meta_leakage_in_finish():
+    """Verifica que si el agente reproduce advertencias de supervisión en finish, sea rechazado."""
+    middleware = JEVProxyMiddleware(goal="Que opinas de este proyecto?")
+
+    middleware.record_observation("README.md: Praxeon runtime supervisor")
+
+    leakage_finish = {
+        "step_type": "tool_call",
+        "tool_name": "finish",
+        "tool_args": {
+            "summary": "El proceso ha detectado un bucle o estancamiento en el paso anterior, lo que ha causado que la herramienta edit_file haya sido vetada temporalmente."
+        },
+        "thought_rationale": "Resumiendo estado del sistema.",
+    }
+
+    res = middleware.intercept_step_chunk([leakage_finish])
+    assert res.all_safe is False
+
+    allowed, directive = middleware.intercept_tool_call(
+        "finish",
+        {"summary": "Herramienta edit_file vetada temporalmente por el supervisor."},
+    )
+    assert allowed is False
+    assert "Tu llamada a 'finish' ha sido RECHAZADA" in str(directive)
+
+
+
 
 
 

@@ -106,7 +106,7 @@ class JEVProxyMiddleware:
                 content_raw = str(step.content or "").lower()
                 combined_finish = f"{summary_raw} {content_raw}"
 
-                # 1. Comprobar si el finish es evasivo
+                # 1. Comprobar si el finish es evasivo o reproduce alertas internas del supervisor
                 evasive_markers = (
                     "pendiente de", "pendiente", "planificación", "planificacion",
                     "como soy un agente", "la acción real", "la accion real",
@@ -114,7 +114,16 @@ class JEVProxyMiddleware:
                     "no he podido leer", "no he podido", "provisional", "pending",
                     "este paso es de"
                 )
-                if any(m in combined_finish for m in evasive_markers):
+                meta_leakage_markers = (
+                    "ha sido vetada", "vetada temporalmente", "bucle o estancamiento",
+                    "acción pausada", "accion pausada", "acción bloqueada", "accion bloqueada",
+                    "bloqueado por el supervisor", "bloqueada por el supervisor",
+                    "error de supervisión", "error de supervision",
+                    "policy_engine", "system_intervention",
+                    "no tengo la autorización", "no tengo la autorizacion",
+                    "intervención activada", "intervencion activada",
+                )
+                if any(m in combined_finish for m in evasive_markers) or any(m in combined_finish for m in meta_leakage_markers):
                     is_evasive_finish = True
 
                 # 2. Comprobar si viene en el mismo bloque donde hay acciones de lectura previas
@@ -248,11 +257,28 @@ class JEVProxyMiddleware:
                 "no he podido leer", "no he podido", "provisional", "pending",
                 "este paso es de"
             )
+            meta_leakage_markers = (
+                "ha sido vetada", "vetada temporalmente", "bucle o estancamiento",
+                "acción pausada", "accion pausada", "acción bloqueada", "accion bloqueada",
+                "bloqueado por el supervisor", "bloqueada por el supervisor",
+                "error de supervisión", "error de supervision",
+                "policy_engine", "system_intervention",
+                "no tengo la autorización", "no tengo la autorizacion",
+                "intervención activada", "intervencion activada",
+            )
             if any(m in combined_finish for m in evasive_markers):
                 return False, (
                     "<system_intervention type=\"rejection\" level=\"critical\">\n"
                     "JEV CRITICAL: Finalización evasiva rechazada. NO puedes finalizar con 'pendiente de lectura' "
                     "ni excusas de planificación. Sintetiza y formula tu respuesta final basándote en observaciones reales.\n"
+                    "</system_intervention>"
+                )
+            if any(m in combined_finish for m in meta_leakage_markers):
+                return False, (
+                    "<system_intervention type=\"rejection\" level=\"critical\">\n"
+                    f"JEV CRITICAL: Tu llamada a 'finish' ha sido RECHAZADA porque estás describiendo diagnósticos "
+                    f"internos del supervisor en lugar de responder a la tarea del usuario: '{self.goal}'. "
+                    f"Entrega tu análisis fundamentado resolviendo la tarea solicitada.\n"
                     "</system_intervention>"
                 )
 

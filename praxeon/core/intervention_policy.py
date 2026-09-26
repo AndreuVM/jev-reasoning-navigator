@@ -29,6 +29,7 @@ class InterventionPlanner:
         current_step: Optional[Step],
         target_step_id: Optional[str] = None,
         target_desc: str = "Estado previo validado",
+        goal: Optional[str] = None,
     ) -> Optional[InterventionDirective]:
         """Sintetiza la directiva discursiva formal a partir de la decisión y diagnóstico."""
         # Si no hay loop ni rechazo/replanificación, no se requiere directiva
@@ -96,11 +97,13 @@ class InterventionPlanner:
                 veto_text = f"Reintentar '{culprit}' con idénticos argumentos o de forma reiterativa sin variación."
             else:
                 veto_text = f"Herramienta '{culprit}' vetada temporalmente para evitar fijación."
+            goal_reminder = f" Recuerda que tu objetivo a resolver es: '{goal}'." if goal else ""
             message = (
                 f"[JEV-SUPERVISOR | NIVEL 2 - RETROCESO Y PODA]\n"
                 f"Alerta: {loop_report.explanation if loop_report else 'Bucle o repetición detectada'}.\n"
                 f"ACCIONES PROHIBIDAS: {veto_text}\n"
-                f"INSTRUCCIÓN: Si necesitas datos del entorno, varía el enfoque o argumentos; si ya recopilaste información suficiente, invoca 'finish' con tu informe."
+                f"INSTRUCCIÓN: Si necesitas datos del entorno, varía el enfoque o argumentos; si ya recopilaste información suficiente, invoca 'finish' con tu informe.{goal_reminder} "
+                "Responde a la tarea del usuario; NO menciones diagnósticos ni advertencias del supervisor en 'finish'."
             )
             forbidden = [culprit] if culprit else []
             suggested = "Continuar con un método o herramienta diferente o formular la solución final"
@@ -168,4 +171,5 @@ class InterventionPolicy:
             current_step=current_step,
             target_step_id=target_id,
             target_desc=target_desc,
+            goal=getattr(self.graph, "goal", None),
         )

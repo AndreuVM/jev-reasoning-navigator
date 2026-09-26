@@ -480,7 +480,17 @@ def run_live_agent(
                     "no he podido leer", "no he podido", "provisional", "pending",
                     "este paso es de"
                 )
-                if any(m in str(summary).lower() for m in evasive_markers):
+                meta_leakage_markers = (
+                    "ha sido vetada", "vetada temporalmente", "bucle o estancamiento",
+                    "acción pausada", "accion pausada", "acción bloqueada", "accion bloqueada",
+                    "bloqueado por el supervisor", "bloqueada por el supervisor",
+                    "error de supervisión", "error de supervision",
+                    "policy_engine", "system_intervention",
+                    "no tengo la autorización", "no tengo la autorizacion",
+                    "intervención activada", "intervencion activada",
+                )
+                sum_lower = str(summary).lower()
+                if any(m in sum_lower for m in evasive_markers):
                     console.print(Panel(
                         f"[bold yellow]⚠️ JEV Rechazó finalización evasiva:[/] {summary}\n"
                         "[italic]El agente intentó terminar con excusas de planificación. Obligando a formular respuesta con observaciones existentes.[/]",
@@ -491,6 +501,20 @@ def run_live_agent(
                     observation = (
                         "OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque contiene un texto de planificación o evasión ('pendiente de lectura'). "
                         "NO puedes finalizar sin dar una respuesta concreta. Analiza las observaciones y el contenido ya obtenido y responde directamente con los hallazgos en tu siguiente turno."
+                    )
+                elif any(m in sum_lower for m in meta_leakage_markers):
+                    console.print(Panel(
+                        f"[bold yellow]⚠️ JEV Rechazó eco de diagnóstico interno:[/] {summary}\n"
+                        "[italic]El agente describió advertencias del supervisor en lugar de resolver la tarea del usuario.[/]",
+                        title="🛡️ Intervención JEV",
+                        border_style="yellow",
+                    ))
+                    task_finished = False
+                    observation = (
+                        f"OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque estás describiendo "
+                        f"mensajes de diagnóstico interno del supervisor en lugar de responder a la tarea del usuario: '{task}'. "
+                        f"Prohibido mencionar 'herramienta vetada', 'bucle detectado' o 'policy_engine'. Responde directamente a: '{task}' "
+                        f"con tus conclusiones y opinión fundamentada sobre el proyecto que has inspeccionado."
                     )
                 else:
                     console.print(Panel(

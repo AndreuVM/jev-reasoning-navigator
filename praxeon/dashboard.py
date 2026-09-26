@@ -740,15 +740,29 @@ def _execute_single_live_task(
                     time.sleep(0.5)
                     continue
 
-                if not is_real_hallucination and flagged_tool in ("read_file", "view_file", "list_dir", "run_command"):
+                if flagged_tool in ("edit_file", "write_file"):
+                    agent_prompt_feedback = (
+                        f"SUPERVISIÓN PRAXEON: La acción '{flagged_tool}' ha sido BLOQUEADA porque la tarea solicitada por el usuario "
+                        f"('{goal}') no requiere modificar archivos ni alterar el código.\n"
+                        f"INSTRUCCIÓN OBLIGATORIA: Tu objetivo es responder al usuario: '{goal}'. "
+                        "Basándote en los archivos y código que ya has inspeccionado, entrega tu informe/opinión en:\n"
+                        'Action: finish {"summary": "tu respuesta completa y fundamentada resolviendo la tarea del usuario"}'
+                    )
+                elif not is_real_hallucination and flagged_tool in ("read_file", "view_file", "list_dir", "run_command"):
                     agent_prompt_feedback = (
                         f"SUPERVISIÓN PRAXEON: La consulta '{flagged_tool}' ha sido pausada porque ese contenido ya fue obtenido "
-                        "y está presente en tus observaciones anteriores. TIENES AUTORIZACIÓN PLENA para responder a la tarea del usuario. "
+                        "y está presente en tus observaciones anteriores. TIENES AUTORIZACIÓN PLENA para responder a la tarea del usuario.\n"
+                        f"INSTRUCCIÓN OBLIGATORIA: Responde directamente al objetivo del usuario: '{goal}'. "
                         "No necesitas volver a leerlo: sintetiza la respuesta basándote en lo ya observado e invoca obligatoriamente:\n"
                         'Action: finish {"summary": "tu respuesta completa con los hallazgos"}'
                     )
                 else:
-                    agent_prompt_feedback = f"SUPERVISIÓN PRAXEON: Acción bloqueada. {dash.directive_text}"
+                    agent_prompt_feedback = (
+                        f"SUPERVISIÓN PRAXEON: Acción '{flagged_tool}' bloqueada. {dash.directive_text}\n"
+                        f"INSTRUCCIÓN OBLIGATORIA: Tu meta es resolver la tarea del usuario: '{goal}'. "
+                        "NO reproduzcas advertencias de bloqueo ni diagnósticos del supervisor; formula tu respuesta a la tarea en 'finish':\n"
+                        'Action: finish {"summary": "tu respuesta final a la tarea del usuario"}'
+                    )
 
                 conversation_history.append({
                     "role": "user",
@@ -785,13 +799,33 @@ def _execute_single_live_task(
                         "no he podido leer", "no he podido", "provisional", "pending",
                         "este paso es de"
                     )
-                    if any(m in str(summary).lower() for m in evasive_markers):
+                    meta_leakage_markers = (
+                        "ha sido vetada", "vetada temporalmente", "bucle o estancamiento",
+                        "acción pausada", "accion pausada", "acción bloqueada", "accion bloqueada",
+                        "bloqueado por el supervisor", "bloqueada por el supervisor",
+                        "error de supervisión", "error de supervision",
+                        "policy_engine", "system_intervention",
+                        "no tengo la autorización", "no tengo la autorizacion",
+                        "intervención activada", "intervencion activada",
+                    )
+                    sum_lower = str(summary).lower()
+                    if any(m in sum_lower for m in evasive_markers):
                         dash.supervisor_status = "⚠️ FINISH EVASIVO RECHAZADO"
                         dash.supervisor_action = "Inyectando directiva para respuesta fundamentada"
                         task_finished = False
                         obs = (
                             "OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque contiene un texto de planificación o evasión ('pendiente de lectura'). "
                             "NO puedes finalizar sin dar una respuesta concreta. Analiza las observaciones y el contenido ya obtenido y responde directamente con los hallazgos en tu siguiente turno."
+                        )
+                    elif any(m in sum_lower for m in meta_leakage_markers):
+                        dash.supervisor_status = "⚠️ RESPUESTA INVÁLIDA: ECO DE SUPERVISOR RECHAZADO"
+                        dash.supervisor_action = "Inyectando directiva para responder al objetivo real"
+                        task_finished = False
+                        obs = (
+                            f"OBSERVACIÓN DEL SUPERVISOR (JEV): Tu llamada a 'finish' ha sido RECHAZADA porque estás describiendo "
+                            f"mensajes de diagnóstico interno del supervisor en lugar de responder a la tarea del usuario: '{goal}'. "
+                            f"Prohibido mencionar 'herramienta vetada', 'bucle detectado' o 'policy_engine'. Responde directamente a: '{goal}' "
+                            f"con tus conclusiones y opinión fundamentada sobre el proyecto que has inspeccionado."
                         )
                     else:
                         task_finished = True

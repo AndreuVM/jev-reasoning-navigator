@@ -116,7 +116,8 @@ class SessionContextManager:
             "La herramienta 'finish' SOLO debe usarse para entregar la solución definitiva ya sintetizada a partir de las observaciones reales obtenidas.\n"
             "- NUNCA propongas 'finish' en el mismo bloque junto a herramientas de inspección (como read_file o run_command) que aún no hayan sido ejecutadas.\n"
             "- Emite EXCLUSIVAMENTE los bloques de pasos estructurados (Step 1, Step 2, etc.) con sus campos Thought y Action. NO agregues introducciones, preámbulos conversacionales ni texto suelto fuera de ese formato.\n"
-            "- Para tareas de consulta, informe o análisis: en cuanto hayas inspeccionado los archivos clave necesarios (ej. README, configuración o estructura), formula INMEDIATAMENTE tu informe final estructurado y completo en la acción 'finish'. No continúes explorando archivos secundarios sin necesidad.\n"
+            "- Para tareas de consulta, informe, análisis u opinión (ej. '¿Qué opinas...?', 'analiza...', 'resume...', 'explica...'): la tarea es EXCLUSIVAMENTE DE LECTURA. Queda PROHIBIDO usar 'edit_file'. Inspecciona con 'read_file' o comandos de lectura y entrega tu conclusión u opinión directamente en 'finish'.\n"
+            "- En la acción 'finish', responde DIRECTAMENTE al objetivo del usuario. Queda TERMINANTEMENTE PROHIBIDO describir mensajes internos del supervisor, herramientas vetadas, advertencias de bucle o diagnósticos del sistema. Entrega siempre tu análisis fundamentado sobre el código y proyecto inspeccionado.\n"
             "Cuando hayas resuelto la tarea o encontrado la solución fundamentada, invoca obligatoriamente:\n"
             'Action: finish {"summary": "explicación clara, fundamentada y completa de la solución final"}'
         )
