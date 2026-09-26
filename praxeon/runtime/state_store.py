@@ -22,6 +22,10 @@ class InMemoryStateStore(StateStore, CheckpointStore):
         """Recupera el estado de una sesión por su identificador."""
         return self._states.get(session_id)
 
+    def list_sessions(self) -> List[str]:
+        """Devuelve la lista de IDs de sesiones conocidas."""
+        return list(self._states.keys())
+
     def save_checkpoint(self, checkpoint: Checkpoint) -> None:
         """Almacena una instantánea atómica de checkpoint."""
         self._checkpoints[checkpoint.id] = checkpoint
@@ -150,6 +154,17 @@ class SqliteStateStore(StateStore, CheckpointStore):
                 if not row:
                     return None
                 return SessionState.model_validate_json(row[0])
+            finally:
+                self._close_conn(conn)
+
+    def list_sessions(self) -> List[str]:
+        """Devuelve la lista de IDs de sesiones registradas en SQLite."""
+        with self._lock:
+            conn = self._get_connection()
+            try:
+                cur = conn.cursor()
+                cur.execute("SELECT session_id FROM sessions ORDER BY updated_at DESC")
+                return [row[0] for row in cur.fetchall()]
             finally:
                 self._close_conn(conn)
 

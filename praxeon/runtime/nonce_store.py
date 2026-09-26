@@ -166,40 +166,43 @@ class SqliteNonceStore(NonceStore):
                 self._close_conn(conn)
 
     def consume(self, decision_id: str, nonce: str, expires_at: Optional[datetime] = None) -> bool:
+        import sqlite3
+        now = datetime.utcnow()
+        now_str = now.isoformat()
+        exp_str = expires_at.isoformat() if expires_at else None
+
         with self._lock:
             conn = self._get_connection()
             try:
                 cur = conn.cursor()
-                # Verificar si ya existe y sigue activo
-                cur.execute(
-                    "SELECT expires_at FROM consumed_nonces WHERE decision_id = ? AND nonce = ?",
-                    (decision_id, nonce),
-                )
-                row = cur.fetchone()
-                now = datetime.utcnow()
-                if row:
-                    exp_str = row[0]
-                    if exp_str:
-                        try:
-                            exp = datetime.fromisoformat(exp_str)
-                            if now <= exp:
-                                return False  # Aún activo: rechazar replay
-                        except Exception:
-                            return False
-                    else:
-                        return False  # Sin expiración: permanentemente consumido
-
-                now_str = now.isoformat()
-                exp_str = expires_at.isoformat() if expires_at else None
-                with conn:
-                    cur.execute(
-                        """
-                        INSERT OR REPLACE INTO consumed_nonces (decision_id, nonce, expires_at, created_at)
-                        VALUES (?, ?, ?, ?)
-                        """,
-                        (decision_id, nonce, exp_str, now_str),
-                    )
-                return True
+                # 1. Intentar inserción atómica inicial (falla si ya existe por PRIMARY KEY)
+                try:
+                    with conn:
+                        cur.execute(
+                            """
+                            INSERT INTO consumed_nonces (decision_id, nonce, expires_at, created_at)
+                            VALUES (?, ?, ?, ?)
+                            """,
+                            (decision_id, nonce, exp_str, now_str),
+                        )
+                    return True
+                except sqlite3.IntegrityError:
+                    # 2. Conflicto de clave primaria: ya existe.
+                    # Comprobar atómicamente si estaba expirado y actualizar solo en ese caso.
+                    with conn:
+                        cur.execute(
+                            """
+                            UPDATE consumed_nonces
+                            SET expires_at = ?, created_at = ?
+                            WHERE decision_id = ? AND nonce = ?
+                              AND expires_at IS NOT NULL
+                              AND expires_at < ?
+                            """,
+                            (exp_str, now_str, decision_id, nonce, now_str),
+                        )
+                        if cur.rowcount > 0:
+                            return True
+                    return False
             finally:
                 self._close_conn(conn)
 

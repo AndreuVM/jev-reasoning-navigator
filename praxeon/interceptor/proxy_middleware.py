@@ -14,7 +14,16 @@ from praxeon.config import JEVConfig, default_config
 from praxeon.core.intervention_policy import InterventionPolicy
 from praxeon.core.jev_engine import JEVEngine
 from praxeon.core.state_graph import StateGraph
-from praxeon.domain.models import ActionCandidate as DomainAction, DecisionStatus, Goal, ToolCall
+from praxeon.domain.events import EventType
+from praxeon.domain.models import (
+    ActionCandidate as DomainAction,
+    DecisionReceipt,
+    DecisionStatus,
+    Goal,
+    ToolCall,
+    compute_action_hash,
+    sign_receipt,
+)
 from praxeon.models.schema import (
     ActionCandidate,
     BatchSemantics,
@@ -42,11 +51,14 @@ class JEVProxyMiddleware:
         config: Optional[JEVConfig] = None,
         tool_registry: Optional[ToolRegistry] = None,
         executor: Optional[SecureExecutor] = None,
+        event_bus: Optional[Any] = None,
+        session_id: Optional[str] = None,
     ):
         self.config = config or default_config
         self.goal = goal
         self.domain_goal = Goal(objective=goal)
-        self.trajectory = Trajectory(session_id="proxy_session", goal=goal, steps=[])
+        self.session_id = session_id or "proxy_session"
+        self.trajectory = Trajectory(session_id=self.session_id, goal=goal, steps=[])
         self.graph = StateGraph(self.config)
         self.graph.load_trajectory(self.trajectory)
         self.engine = JEVEngine(self.graph, self.config)
@@ -54,7 +66,23 @@ class JEVProxyMiddleware:
         self.registry = tool_registry or ToolRegistry(register_defaults=True)
         self.executor = executor or SecureExecutor(registry=self.registry)
         self.completion_verifier = CompletionVerifier()
-        self.session_state = SessionState(session_id="proxy_session", goal=self.domain_goal)
+        self.session_state = SessionState(session_id=self.session_id, goal=self.domain_goal)
+        self.event_bus = event_bus
+
+        if self.event_bus:
+            self.event_bus.emit(
+                session_id=self.session_id,
+                event_type=EventType.SESSION_STARTED,
+                node_id=f"root_{self.session_id}",
+                payload={"agent_name": "CodingAgent", "status": "Active", "label": "Start"},
+            )
+            self.event_bus.emit(
+                session_id=self.session_id,
+                event_type=EventType.GOAL_CREATED,
+                node_id=f"goal_{self.session_id}",
+                parent_id=f"root_{self.session_id}",
+                payload={"goal": goal},
+            )
 
     def intercept_step_chunk(
         self,
@@ -80,6 +108,21 @@ class JEVProxyMiddleware:
                 tool_args=p.get("tool_args"),
             )
             candidate_steps.append(step)
+            if self.event_bus:
+                parent_id = f"step_{start_idx + offset - 1}" if (start_idx + offset > 0) else f"root_{self.session_id}"
+                self.event_bus.emit(
+                    session_id=self.session_id,
+                    event_type=EventType.ACTION_PROPOSED,
+                    node_id=step_id,
+                    parent_id=parent_id,
+                    payload={
+                        "action_id": step_id,
+                        "tool": step.tool_name,
+                        "operation": str(step.tool_args or ""),
+                        "thought": step.content,
+                        "source": "CodingAgent",
+                    },
+                )
 
         # Evaluar bloque agrupado mediante TypeSafe AI
         eval_results = self.engine.evaluate_step_chunk(candidate_steps, batch_semantics=batch_semantics)
@@ -206,6 +249,35 @@ class JEVProxyMiddleware:
                     loop_report=loop_rep,
                 )
 
+                if self.event_bus:
+                    self.event_bus.emit(
+                        session_id=self.session_id,
+                        event_type=EventType.PROVIDER_EVALUATED,
+                        node_id=step.id,
+                        payload={
+                            "provider_name": getattr(getattr(self.config, "provider", None), "name", "TypeSafe").upper(),
+                            "score": round(score.total_jev, 2),
+                            "verdict": "BLOCK",
+                        },
+                    )
+                    self.event_bus.emit(
+                        session_id=self.session_id,
+                        event_type=EventType.POLICY_DECIDED,
+                        node_id=f"{step.id}_policy",
+                        parent_id=step.id,
+                        payload={
+                            "status": "BLOCKED" if (directive and directive.level == InterventionLevel.CRITICAL) else "REVIEW",
+                            "reason_code": loop_type.value if hasattr(loop_type, "value") else str(loop_type),
+                            "reason": explanation,
+                        },
+                    )
+                    self.event_bus.emit(
+                        session_id=self.session_id,
+                        event_type=EventType.DECISION_PRUNED,
+                        node_id=step.id,
+                        payload={"reason": explanation},
+                    )
+
                 return ChunkEvaluationResult(
                     all_safe=False,
                     valid_step_count=idx,
@@ -216,6 +288,32 @@ class JEVProxyMiddleware:
                     hallucination_detected=bool(is_hallucination and not is_observational),
                     hallucination_type=diag_hallucination_type,
                     explanation=directive.message if directive else explanation,
+                )
+
+        if self.event_bus:
+            for step, sc in zip(candidate_steps, step_scores):
+                self.event_bus.emit(
+                    session_id=self.session_id,
+                    event_type=EventType.PROVIDER_EVALUATED,
+                    node_id=step.id,
+                    payload={
+                        "provider_name": getattr(getattr(self.config, "provider", None), "name", "TypeSafe").upper(),
+                        "score": round(sc.total_jev, 2),
+                        "verdict": "ALLOW",
+                    },
+                )
+                self.event_bus.emit(
+                    session_id=self.session_id,
+                    event_type=EventType.POLICY_DECIDED,
+                    node_id=f"{step.id}_policy",
+                    parent_id=step.id,
+                    payload={"status": "ALLOW", "reason_code": "APPROVED_BY_POLICY"},
+                )
+                self.event_bus.emit(
+                    session_id=self.session_id,
+                    event_type=EventType.CAPABILITY_ISSUED,
+                    node_id=step.id,
+                    payload={"capability_id": f"cap_{step.id}", "allowed_tools": [step.tool_name] if step.tool_name else []},
                 )
 
         return ChunkEvaluationResult(
@@ -332,15 +430,66 @@ class JEVProxyMiddleware:
         thought_rationale: str = "",
     ) -> ToolObservation:
         """Ejecuta una herramienta de forma encapsulada tras la barrera de seguridad (Hallazgo 3.8)."""
+        step_idx = len(self.session_state.steps)
+        action_id = f"act_{step_idx}"
         action = DomainAction(
-            id=f"act_{len(self.session_state.steps)}",
+            id=action_id,
             description=thought_rationale,
             tool_call=ToolCall(tool_name=tool_name, arguments=tool_args or {}),
         )
+        if self.event_bus:
+            self.event_bus.emit(
+                session_id=self.session_id,
+                event_type=EventType.EXECUTION_STARTED,
+                node_id=f"exec_{action_id}",
+                parent_id=f"step_{step_idx}" if step_idx > 0 else f"root_{self.session_id}",
+                payload={"tool": tool_name, "tool_args": tool_args or {}},
+            )
+        # Emitir capability receipt formal para autorizar la ejecución física
+        action_hash = compute_action_hash(action)
+        state_hash = self.session_state.compute_hash()
+        receipt = DecisionReceipt(
+            decision_id=f"dec_{action_id}",
+            session_id=self.session_id,
+            action_id=action_id,
+            state_hash=state_hash,
+            action_hash=action_hash,
+            decision_status=DecisionStatus.ALLOW,
+        )
+        if self.executor.secret_key:
+            receipt = sign_receipt(receipt, self.executor.secret_key)
+
         # Ejecución delegada dentro del perímetro de seguridad
-        observation = self.executor.execute(action, self.session_state)
+        observation = self.executor.execute(action, self.session_state, receipt=receipt)
         # Registrar observación en el grafo
         self.record_observation(observation.output)
+
+        if self.event_bus:
+            self.event_bus.emit(
+                session_id=self.session_id,
+                event_type=EventType.EXECUTION_COMPLETED,
+                node_id=f"exec_{action_id}",
+                payload={
+                    "success": observation.success,
+                    "exit_code": getattr(observation, "exit_code", 0 if observation.success else 1),
+                    "execution_time_ms": observation.execution_time_ms,
+                },
+            )
+            self.event_bus.emit(
+                session_id=self.session_id,
+                event_type=EventType.OBSERVATION_RECORDED,
+                node_id=f"obs_{action_id}",
+                parent_id=f"exec_{action_id}",
+                payload={"output": observation.output[:2000]},
+            )
+            if tool_name == "finish" and observation.success:
+                self.event_bus.emit(
+                    session_id=self.session_id,
+                    event_type=EventType.SESSION_COMPLETED,
+                    node_id=f"root_{self.session_id}",
+                    payload={"status": "completed", "summary": (tool_args or {}).get("summary", "")},
+                )
+
         return observation
 
     def record_observation(self, observation_text: str) -> None:

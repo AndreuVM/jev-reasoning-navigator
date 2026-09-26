@@ -11,6 +11,7 @@ Garantiza:
 """
 
 from abc import ABC, abstractmethod
+from enum import Enum
 import os
 import shlex
 import shutil
@@ -20,6 +21,13 @@ import time
 from typing import Any, Dict, List, Optional, Set, Tuple
 from pydantic import BaseModel, ConfigDict, Field
 from praxeon.policy.egress import EgressMode, EgressPolicy, EgressViolation
+
+
+class SandboxTier(str, Enum):
+    """Niveles formales de aislamiento y contención del runtime."""
+    CONTAINER = "container"
+    LOCAL_PROCESS = "local_process"
+    DRY_RUN = "dry_run"
 
 
 class SandboxViolation(Exception):
@@ -37,6 +45,9 @@ class SandboxExecutionResult(BaseModel):
     exit_code: int = 0
     execution_time_ms: float = 0.0
     sandboxed: bool = True
+    tier: SandboxTier = SandboxTier.LOCAL_PROCESS
+    fallback_occurred: bool = False
+    container_runtime: Optional[str] = None
 
 
 class SandboxAdapter(ABC):
@@ -381,6 +392,7 @@ class DryRunSandbox(SandboxAdapter):
             exit_code=0,
             execution_time_ms=0.1,
             sandboxed=True,
+            tier=SandboxTier.DRY_RUN,
         )
 
     def read_file(self, path: str, max_bytes: int = 50_000) -> SandboxExecutionResult:
@@ -391,6 +403,7 @@ class DryRunSandbox(SandboxAdapter):
             exit_code=0,
             execution_time_ms=0.1,
             sandboxed=True,
+            tier=SandboxTier.DRY_RUN,
         )
 
     def edit_file(self, path: str, content: str) -> SandboxExecutionResult:
@@ -401,6 +414,7 @@ class DryRunSandbox(SandboxAdapter):
             exit_code=0,
             execution_time_ms=0.1,
             sandboxed=True,
+            tier=SandboxTier.DRY_RUN,
         )
 
 
@@ -498,7 +512,12 @@ class ContainerSandboxAdapter(SandboxAdapter):
         # 2. Comprobar disponibilidad de runtime externo
         if not self.is_runtime_available():
             if self.config.fallback_to_local:
-                return self._local_fallback.execute_command(cmd_str, cwd=cwd, env=env, timeout=timeout)
+                res = self._local_fallback.execute_command(cmd_str, cwd=cwd, env=env, timeout=timeout)
+                return res.model_copy(update={
+                    "tier": SandboxTier.LOCAL_PROCESS,
+                    "fallback_occurred": True,
+                    "container_runtime": None,
+                })
             raise SandboxViolation(
                 f"Aislamiento fuerte requerido, pero el runtime de contenedor '{self.runtime_binary or self.config.runtime_binary}' "
                 "no está disponible o no responde en el host."
@@ -520,6 +539,8 @@ class ContainerSandboxAdapter(SandboxAdapter):
             "run",
             "--rm",
             "-i",
+            "--cap-drop=ALL",
+            "--security-opt=no-new-privileges",
             "-v",
             f"{self.workspace_root}:{self.config.container_workspace}:rw",
             "-w",
@@ -558,6 +579,9 @@ class ContainerSandboxAdapter(SandboxAdapter):
                 exit_code=proc.returncode,
                 execution_time_ms=round(elapsed, 2),
                 sandboxed=True,
+                tier=SandboxTier.CONTAINER,
+                fallback_occurred=False,
+                container_runtime=self.runtime_binary,
             )
         except subprocess.TimeoutExpired:
             elapsed = (time.perf_counter() - start_t) * 1000.0
@@ -568,6 +592,9 @@ class ContainerSandboxAdapter(SandboxAdapter):
                 exit_code=124,
                 execution_time_ms=round(elapsed, 2),
                 sandboxed=True,
+                tier=SandboxTier.CONTAINER,
+                fallback_occurred=False,
+                container_runtime=self.runtime_binary,
             )
         except Exception as e:
             elapsed = (time.perf_counter() - start_t) * 1000.0
@@ -578,11 +605,16 @@ class ContainerSandboxAdapter(SandboxAdapter):
                 exit_code=1,
                 execution_time_ms=round(elapsed, 2),
                 sandboxed=True,
+                tier=SandboxTier.CONTAINER,
+                fallback_occurred=False,
+                container_runtime=self.runtime_binary,
             )
 
     def read_file(self, path: str, max_bytes: int = 50_000) -> SandboxExecutionResult:
-        return self._local_fallback.read_file(path, max_bytes)
+        res = self._local_fallback.read_file(path, max_bytes)
+        return res.model_copy(update={"tier": SandboxTier.LOCAL_PROCESS, "fallback_occurred": True})
 
     def edit_file(self, path: str, content: str) -> SandboxExecutionResult:
-        return self._local_fallback.edit_file(path, content)
+        res = self._local_fallback.edit_file(path, content)
+        return res.model_copy(update={"tier": SandboxTier.LOCAL_PROCESS, "fallback_occurred": True})
 

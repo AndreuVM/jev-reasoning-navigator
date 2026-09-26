@@ -4,12 +4,22 @@ from praxeon.domain.action import ActionCandidate, ToolCall, compute_action_hash
 from praxeon.domain.assessment import ProviderAssessment, RiskAssessment, RiskLevel
 from praxeon.domain.checkpoint import Checkpoint, ExecutionEnvironment
 from praxeon.domain.decision import (
+    CapabilityPayload,
     DecisionReceipt,
     DecisionStatus,
     PolicyDecision,
     compute_receipt_signature,
     compute_state_hash,
     verify_receipt_signature,
+)
+from praxeon.domain.events import EventType, RuntimeEvent, make_event
+from praxeon.domain.tree import (
+    DecisionTree,
+    NodeActor,
+    NodeKind,
+    NodeStatus,
+    TreeEdge,
+    TreeNode,
 )
 from praxeon.domain.evidence import Claim, Evidence
 from praxeon.domain.goal import CriterionType, Goal, SuccessCriterion
@@ -57,4 +67,14 @@ __all__ = [
     "StateStore",
     "PolicyEngineProtocol",
     "CompletionVerifierProtocol",
+    "CapabilityPayload",
+    "EventType",
+    "RuntimeEvent",
+    "make_event",
+    "TreeNode",
+    "TreeEdge",
+    "DecisionTree",
+    "NodeKind",
+    "NodeStatus",
+    "NodeActor",
 ]

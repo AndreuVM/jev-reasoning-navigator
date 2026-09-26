@@ -91,6 +91,9 @@ class StateStore(Protocol):
     def load_state(self, session_id: str) -> Optional[Any]:
         ...
 
+    def list_sessions(self) -> List[str]:
+        ...
+
 
 @runtime_checkable
 class PolicyEngineProtocol(Protocol):

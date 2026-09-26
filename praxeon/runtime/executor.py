@@ -195,8 +195,10 @@ class SecureExecutor(Executor):
                         receipt=receipt,
                     )
 
-            # Verificar no-reutilización (Replay attack prevention mediante NonceStore)
-            if self.nonce_store.has_been_consumed(receipt.decision_id, receipt.nonce) or receipt.decision_id in self._consumed_receipts:
+            # Verificar no-reutilización (Replay attack prevention mediante NonceStore atómico)
+            if receipt.decision_id in self._consumed_receipts or not self.nonce_store.consume(
+                receipt.decision_id, receipt.nonce, expires_at=receipt.expires_at
+            ):
                 raise PolicyViolation(
                     f"Ejecución física DENEGADA para '{tool_name}': El capability '{receipt.decision_id}' "
                     f"con nonce '{receipt.nonce}' ya ha sido consumido previamente (Replay attack prevention).",
@@ -205,8 +207,7 @@ class SecureExecutor(Executor):
                     receipt=receipt,
                 )
 
-            # Consumir el capability de forma atómica en NonceStore y registro local
-            self.nonce_store.consume(receipt.decision_id, receipt.nonce, expires_at=receipt.expires_at)
+            # Registrar en conjunto local
             self._consumed_receipts.add(receipt.decision_id)
 
         # 2. BARRERA DE ENFORCEMENT: Verificar si la herramienta está prohibida en el estado

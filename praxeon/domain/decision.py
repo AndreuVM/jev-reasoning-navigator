@@ -95,6 +95,50 @@ class DecisionReceipt(BaseModel):
         current_time = now or datetime.utcnow()
         return current_time > self.expires_at
 
+    def to_capability_payload(self, allowed_tools: Optional[List[str]] = None) -> Optional["CapabilityPayload"]:
+        """Convierte el recibo en un CapabilityPayload formal si el estatus es ALLOW; devuelve None si fue denegado/bloqueado."""
+        if self.decision_status != DecisionStatus.ALLOW:
+            return None
+        return CapabilityPayload(
+            capability_id=f"cap_{self.decision_id}",
+            decision_id=self.decision_id,
+            session_id=self.session_id,
+            action_id=self.action_id,
+            action_hash=self.action_hash,
+            state_hash=self.state_hash,
+            nonce=self.nonce,
+            decision_status=self.decision_status,
+            allowed_tools=allowed_tools or [],
+            expires_at=self.expires_at,
+            signature=self.signature,
+            issued_at=self.timestamp,
+        )
+
+
+class CapabilityPayload(BaseModel):
+    """Token formal de autorización emitido por PolicyEngine para autorizar la ejecución física."""
+    model_config = ConfigDict(frozen=True)
+
+    capability_id: str = Field(..., description="ID único del capability o correspondencia con decision_id")
+    decision_id: str
+    session_id: str
+    action_id: str
+    action_hash: str
+    state_hash: str
+    nonce: str
+    decision_status: DecisionStatus
+    allowed_tools: List[str] = Field(default_factory=list)
+    expires_at: Optional[datetime] = None
+    signature: Optional[str] = None
+    issued_at: datetime = Field(default_factory=datetime.utcnow)
+
+    def is_expired(self, now: Optional[datetime] = None) -> bool:
+        """Determina si el capability ha superado su ventana temporal de validez."""
+        if self.expires_at is None:
+            return False
+        current_time = now or datetime.utcnow()
+        return current_time > self.expires_at
+
 
 def compute_receipt_signature(
     secret_key: str,
