@@ -7,6 +7,7 @@ Resuelve los hallazgos críticos de la auditoría:
 - Soporta BatchSemantics(independent=True/False) (3.3) para evitar penalizaciones espurias en cascada.
 """
 
+import json
 from typing import Any, Callable, Dict, List, Optional, Tuple
 
 from praxeon.config import JEVConfig, default_config

@@ -559,6 +559,36 @@ def test_dashboard_laya_supervisor_header():
     assert "LAYA System-1" in str(sup_panel.title)
 
 
+def test_proxy_middleware_observational_loop_repetition():
+    """Verifica que lecturas repetidas de un mismo archivo se permitan 2 veces y la 3ra active bucle sin error NameError."""
+    middleware = JEVProxyMiddleware(goal="Inspeccionar README.md")
+
+    step_read = {
+        "step_type": "tool_call",
+        "tool_name": "read_file",
+        "tool_args": {"path": "README.md"},
+        "thought_rationale": "Leer README",
+    }
+
+    # 1era lectura: permitida
+    res1 = middleware.intercept_step_chunk([step_read])
+    assert res1.all_safe is True
+
+    # 2da lectura: permitida (idempotente/contraste)
+    res2 = middleware.intercept_step_chunk([step_read])
+    assert res2.all_safe is True
+
+    # 3era lectura idéntica: bucle detectado (no alucinación, y usa json.dumps sin error)
+    res3 = middleware.intercept_step_chunk([step_read])
+    assert res3.all_safe is False
+    assert res3.hallucination_detected is False
+    assert res3.hallucination_type == "loop_repetition"
+    assert "README.md" in res3.explanation
+    assert res3.loop_report is not None
+    assert res3.loop_report.loop_detected is True
+
+
+
 
 
 
