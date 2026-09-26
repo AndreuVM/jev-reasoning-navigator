@@ -92,10 +92,14 @@ class InterventionPlanner:
 
         else:
             level = InterventionLevel.LEVEL_2_FORCED_BACKTRACKING
+            if culprit in ("run_command", "read_file", "view_file", "list_dir"):
+                veto_text = f"Reintentar '{culprit}' con idénticos argumentos o de forma reiterativa sin variación."
+            else:
+                veto_text = f"Herramienta '{culprit}' vetada temporalmente para evitar fijación."
             message = (
                 f"[JEV-SUPERVISOR | NIVEL 2 - RETROCESO Y PODA]\n"
                 f"Alerta: {loop_report.explanation if loop_report else 'Bucle o repetición detectada'}.\n"
-                f"ACCIONES PROHIBIDAS: Herramienta '{culprit}' vetada temporalmente para evitar fijación.\n"
+                f"ACCIONES PROHIBIDAS: {veto_text}\n"
                 f"INSTRUCCIÓN: Si necesitas datos del entorno, varía el enfoque o argumentos; si ya recopilaste información suficiente, invoca 'finish' con tu informe."
             )
             forbidden = [culprit] if culprit else []

@@ -380,7 +380,28 @@ def run_live_agent(
             for valid_idx in range(chunk_result.valid_step_count):
                 st = proposed_steps[valid_idx]
                 executed_steps += 1
-                console.print(f"  [green]✓ Paso {valid_idx+1} previo válido ejecutado: {st.get('tool_name')}[/]")
+                tool_n = st.get("tool_name")
+                tool_a = st.get("tool_args") or {}
+                th_text = st.get("thought_rationale") or ""
+                try:
+                    tool_obs = middleware.execute_tool(tool_n, tool_a, th_text)
+                    obs_text = prune_observation_output(tool_obs.output, max_chars=2000)
+                except Exception as e:
+                    obs_text = f"Error ejecutando '{tool_n}': {e}"
+                executed_step_records.append({
+                    "tool_name": tool_n,
+                    "tool_args": tool_a,
+                    "observation": obs_text,
+                })
+                conversation_history.append({
+                    "role": "assistant",
+                    "content": f"Thought: {th_text}\nAction: {tool_n} {json.dumps(tool_a)}",
+                })
+                conversation_history.append({
+                    "role": "user",
+                    "content": f"Observation: {obs_text}",
+                })
+                console.print(f"  [green]✓ Paso {valid_idx+1} previo válido ejecutado: {tool_n}[/]")
 
             # Inyectar la directiva en el contexto de Gemini para que rectifique en la siguiente llamada
             directive_text = chunk_result.directive.context_injection if chunk_result.directive else chunk_result.explanation

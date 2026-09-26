@@ -638,6 +638,33 @@ def _execute_single_live_task(
                 dash.hallucinations_blocked += 1
                 consecutive_blocks += 1
 
+                # Ejecutar pasos válidos previos si los hubiera (ej. si Step 1 fue read_file y Step 2 finish)
+                for v_idx in range(chunk_result.valid_step_count or 0):
+                    v_st = proposed_steps[v_idx]
+                    v_tool = v_st.get("tool_name")
+                    v_args = v_st.get("tool_args") or {}
+                    v_thought = v_st.get("thought_rationale") or ""
+                    dash.executed_steps += 1
+                    try:
+                        v_obs = dash.middleware.execute_tool(v_tool, v_args, v_thought)
+                        v_obs_str = str(v_obs.output)[:500]
+                    except Exception as e:
+                        v_obs_str = f"Error ejecutando '{v_tool}': {e}"
+                    conversation_history.append({
+                        "role": "assistant",
+                        "content": f"Thought: {v_thought}\nAction: {v_tool} {json.dumps(v_args)}"
+                    })
+                    conversation_history.append({
+                        "role": "user",
+                        "content": f"Observation: {v_obs_str}"
+                    })
+                    dash.record_step_result(
+                        step_name=f"Paso {dash.executed_steps}: {v_tool}",
+                        score_text="Noul 0.10 • ALLOW",
+                        is_safe=True,
+                        explanation="Paso previo del bloque ejecutado exitosamente.",
+                    )
+
                 flagged_idx = chunk_result.flagged_step_index or 0
                 flagged_step = proposed_steps[flagged_idx]
                 flagged_tool = flagged_step.get("tool_name", "accion")
@@ -667,10 +694,18 @@ def _execute_single_live_task(
 
                 # Circuit breaker para evitar bucles repetitivos de bloqueo
                 if consecutive_blocks == 2:
-                    dash.directive_text += (
-                        "\n\n🚨 [ALERTA DE DESBLOQUEO]: Queda TERMINANTEMENTE PROHIBIDO invocar 'edit_file'. "
-                        "En tu siguiente turno invoca 'read_file' para verificar hechos o 'finish' para concluir con los hallazgos."
-                    )
+                    if dash.executed_steps >= 2:
+                        dash.directive_text += (
+                            "\n\n💡 [ORIENTACIÓN DE CIERRE]: Ya has obtenido observaciones empíricas durante la sesión. "
+                            "Si dispones de suficiente contexto para responder a la tarea del usuario, sintetiza tu informe o conclusión "
+                            "y entrega el resultado invocando obligatoriamente:\n"
+                            'Action: finish {"summary": "informe o conclusión fundamentada basada en lo observado"}'
+                        )
+                    else:
+                        dash.directive_text += (
+                            "\n\n🚨 [ALERTA DE DESBLOQUEO]: Queda TERMINANTEMENTE PROHIBIDO invocar 'edit_file'. "
+                            "En tu siguiente turno invoca 'read_file' para verificar hechos o 'finish' para concluir con los hallazgos."
+                        )
                 elif consecutive_blocks >= 3:
                     console.print("[bold yellow]⚡ CIRCUIT BREAKER: Inyectando observación empírica para romper la parálisis cognitiva...[/]")
                     auto_probe = "Archivos reales en disco: "

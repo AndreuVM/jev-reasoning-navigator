@@ -125,14 +125,32 @@ class JEVProxyMiddleware:
                     is_evasive_finish = True
 
             # Diagnosticar si este paso específico viola convergencia
-            step_has_failed = (
-                is_evasive_finish
-                or is_ts_loop
-                or (is_hallucination and not is_observational)
-                or (is_divergent and not is_observational)
-            )
+            if is_terminal:
+                has_any_observations = any(
+                    s.step_type == StepType.OBSERVATION or self.registry.is_observational(s.tool_name or "", s.tool_args)
+                    for s in self.graph.get_all_steps()
+                )
+                step_has_failed = is_evasive_finish or (not has_any_observations and len(self.graph.get_all_steps()) <= 1)
+            elif is_observational:
+                is_identical_repeat = False
+                for prev_step in reversed(self.graph.get_all_steps()[-5:]):
+                    if (
+                        prev_step.id != step.id
+                        and prev_step.tool_name == step.tool_name
+                        and prev_step.tool_args == step.tool_args
+                    ):
+                        is_identical_repeat = True
+                        break
+                step_has_failed = is_identical_repeat
+            else:
+                step_has_failed = (
+                    is_ts_loop
+                    or is_hallucination
+                    or is_divergent
+                )
 
             if step_has_failed:
+                self.graph.remove_step(step.id)
                 loop_type = (
                     LoopType.UNGROUNDED_PREMISE
                     if (is_evasive_finish or has_prior_unexecuted_inspection)
@@ -141,7 +159,7 @@ class JEVProxyMiddleware:
                         if (is_hallucination and not is_observational)
                         else (
                             LoopType.ONE_HOP_TOOL_REPEAT
-                            if is_ts_loop
+                            if (is_ts_loop or (is_observational and is_identical_repeat))
                             else LoopType.SEMANTIC_FIXATION
                         )
                     )
@@ -151,6 +169,8 @@ class JEVProxyMiddleware:
                         "Finalización evasiva o premisa no fundamentada rechazada: el agente intenta concluir "
                         "sin fundamentar empíricamente su resultado en observaciones previas."
                     )
+                elif is_observational and is_identical_repeat:
+                    explanation = f"Reintento idéntico de la herramienta '{step.tool_name}' con los mismos argumentos ya obtenidos."
                 else:
                     explanation = f"Alucinación o divergencia detectada en paso {idx + 1} ('{step.tool_name}')"
 
