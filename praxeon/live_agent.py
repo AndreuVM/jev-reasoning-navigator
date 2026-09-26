@@ -498,55 +498,29 @@ def run_live_agent(
         if task_finished:
             break
 
-    # Si se alcanzó el límite máximo de pasos sin finish explícito, solicitar síntesis final a Gemini
-    if not task_finished:
-        if genai_client:
-            console.print("\n[bold yellow]ℹ️ Se alcanzó el límite de pasos. Solicitando respuesta de síntesis final al agente...[/]")
-            conversation_history.append({
-                "role": "user",
-                "content": "Has alcanzado el límite de pasos de ejecución para esta tarea. Con base en todas las observaciones y datos reales recopilados durante la sesión, formula tu conclusión o respuesta final completa para el usuario.",
-            })
-            try:
-                is_antigravity = "antigravity" in model_name.lower()
-                min_interval = 1.2 if is_antigravity else 12.5
-
-                elapsed = time.time() - last_gemini_call_time
-                if last_gemini_call_time > 0 and elapsed < min_interval:
-                    wait_rpm = min_interval - elapsed
-                    console.print(f"[dim]⏳ Pausa preventiva de {wait_rpm:.1f}s para respetar límite de {'60 RPM' if is_antigravity else '5 RPM'}...[/]")
-                    time.sleep(wait_rpm)
-
-                target_model = "antigravity-preview-09-2026" if model_name.lower() in ("antigravity", "antigravity-preview") else model_name
-                prompt_parts = build_optimized_prompt(conversation_history)
-
-                if is_antigravity:
-                    final_res = genai_client.interactions.create(
-                        model=target_model,
-                        input=prompt_parts,
-                    )
-                    final_answer = (final_res.output_text or "").strip()
-                else:
-                    final_res = genai_client.models.generate_content(
-                        model=model_name,
-                        contents=prompt_parts,
-                        config=genai_config,
-                    )
-                    final_answer = final_res.text.strip()
-
-                console.print(Panel(
-                    final_answer,
-                    title="🏁 Respuesta Final del Agente (Síntesis de Observaciones)",
-                    border_style="cyan",
-                ))
-            except Exception as e:
-                console.print(f"[dim]No se pudo generar síntesis final: {e}[/]")
-        else:
+    # Si se alcanzó el límite máximo de pasos sin finish explícito, solicitar síntesis final al agente
+    if not task_finished and agent_llm:
+        console.print("\n[bold yellow]ℹ️ Se alcanzó el límite de pasos. Solicitando respuesta de síntesis final al agente...[/]")
+        conversation_history.append({
+            "role": "user",
+            "content": "Has alcanzado el límite de pasos de ejecución para esta tarea. Con base en todas las observaciones y datos reales recopilados durante la sesión, formula tu conclusión o respuesta final completa para el usuario.",
+        })
+        try:
+            final_answer = agent_llm.generate(conversation_history).strip()
             console.print(Panel(
-                f"El agente completó los {executed_steps} pasos máximos configurados.\n"
-                "Para permitir más pasos de exploración en tareas complejas, usa el flag: [bold]--steps 10[/]",
-                title="ℹ️ Límite de Pasos Alcanzado",
-                border_style="yellow",
+                final_answer,
+                title="🏁 Respuesta Final del Agente (Síntesis de Observaciones)",
+                border_style="cyan",
             ))
+        except Exception as e:
+            console.print(f"[dim]No se pudo generar síntesis final: {e}[/]")
+    elif not task_finished:
+        console.print(Panel(
+            f"El agente completó los {executed_steps} pasos máximos configurados.\n"
+            "Para permitir más pasos de exploración en tareas complejas, usa el flag: [bold]--steps 10[/]",
+            title="ℹ️ Límite de Pasos Alcanzado",
+            border_style="yellow",
+        ))
 
     # 6. Registrar en la memoria de sesión continua
     resolved_summary = final_summary or final_answer or "Tarea completada satisfactoriamente."

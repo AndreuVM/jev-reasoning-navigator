@@ -116,7 +116,7 @@ class OpenAICompatibleLLM(BaseAgentLLM):
         model: str,
         api_key: Optional[str] = None,
         provider_name: str = "openai_compatible",
-        timeout: float = 60.0,
+        timeout: float = 120.0,
         temperature: float = 0.2,
     ) -> None:
         clean_url = base_url.rstrip("/")
@@ -320,7 +320,7 @@ def create_agent_llm(
     model: Optional[str] = None,
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
-    timeout: float = 60.0,
+    timeout: float = 120.0,
 ) -> BaseAgentLLM:
     """Fábrica universal para inicializar el cliente LLM del Agente Autónomo.
 
