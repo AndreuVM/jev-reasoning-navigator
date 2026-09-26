@@ -675,25 +675,37 @@ def _execute_single_live_task(
                 flagged_step = proposed_steps[flagged_idx]
                 flagged_tool = flagged_step.get("tool_name", "accion")
 
-                dash.supervisor_status = "🚨 INTERCEPCIÓN ACTIVADA: ALUCINACIÓN DETECTADA"
-                dash.supervisor_color = "red"
+                is_real_hallucination = bool(chunk_result.hallucination_detected)
+                if is_real_hallucination:
+                    dash.supervisor_status = "🚨 INTERCEPCIÓN ACTIVADA: ALUCINACIÓN DETECTADA"
+                    dash.supervisor_color = "red"
+                    dash.diagnostic_type = str(chunk_result.hallucination_type or "INVENTED_FACT").upper()
+                    dash.groundedness = "BAJA (Suposición no comprobada)"
+                    dash.noul_prob = 0.85
+                else:
+                    dash.supervisor_status = "⚠️ INTERCEPCIÓN ACTIVADA: BUCLE / REPETICIÓN DETECTADA"
+                    dash.supervisor_color = "yellow"
+                    dash.diagnostic_type = str(chunk_result.hallucination_type or "LOOP_REPETITION").upper()
+                    dash.groundedness = "ALTA (Hechos observados en disco)"
+                    dash.noul_prob = 0.65
+
                 dash.explanation = chunk_result.explanation
-                dash.directive_text = chunk_result.directive.suggested_action if chunk_result.directive else chunk_result.explanation
+                if chunk_result.directive and chunk_result.directive.message:
+                    dash.directive_text = chunk_result.directive.message
+                else:
+                    dash.directive_text = chunk_result.explanation
                 dash.directive_level = "LEVEL_2_FORCED_BACKTRACKING"
-                dash.noul_prob = 0.85
-                dash.groundedness = "BAJA (Suposición no comprobada)"
                 dash.progress_score = "COUNTERPRODUCTIVE"
-                dash.diagnostic_type = str(chunk_result.hallucination_type or "UNVERIFIED_ASSUMPTION").upper()
 
                 dash.update_agent_step(
                     thought=flagged_step.get("thought_rationale", ""),
                     action=f"{flagged_tool} {flagged_step.get('tool_args')}",
-                    observation="🛑 [BLOQUEADO POR TYPESAFE] Acción abortada antes de tocar el sistema.",
-                    status="🛑 Interceptado por Supervisor TypeSafe",
+                    observation=f"🛑 [{dash.diagnostic_type}] Acción pausada por el supervisor antes de tocar el sistema.",
+                    status="🛑 Interceptado por Supervisor",
                 )
                 dash.record_step_result(
                     step_name=f"Paso {dash.executed_steps+1}: {flagged_tool} [BLOQUEADO]",
-                    score_text=f"Noul 0.85 • {dash.diagnostic_type}",
+                    score_text=f"Noul {dash.noul_prob:.2f} • {dash.diagnostic_type}",
                     is_safe=False,
                     explanation=chunk_result.explanation,
                 )
@@ -729,9 +741,19 @@ def _execute_single_live_task(
                     time.sleep(0.5)
                     continue
 
+                if not is_real_hallucination and flagged_tool in ("read_file", "view_file", "list_dir", "run_command"):
+                    agent_prompt_feedback = (
+                        f"SUPERVISIÓN PRAXEON: La consulta '{flagged_tool}' ha sido pausada porque ese contenido ya fue obtenido "
+                        "y está presente en tus observaciones anteriores. TIENES AUTORIZACIÓN PLENA para responder a la tarea del usuario. "
+                        "No necesitas volver a leerlo: sintetiza la respuesta basándote en lo ya observado e invoca obligatoriamente:\n"
+                        'Action: finish {"summary": "tu respuesta completa con los hallazgos"}'
+                    )
+                else:
+                    agent_prompt_feedback = f"SUPERVISIÓN PRAXEON: Acción bloqueada. {dash.directive_text}"
+
                 conversation_history.append({
                     "role": "user",
-                    "content": f"SUPERVISIÓN TYPESAFE AI: Acción bloqueada. {dash.directive_text}",
+                    "content": agent_prompt_feedback,
                 })
                 live.update(dash.generate_layout())
                 time.sleep(0.8)

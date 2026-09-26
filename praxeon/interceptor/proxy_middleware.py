@@ -132,15 +132,22 @@ class JEVProxyMiddleware:
                 )
                 step_has_failed = is_evasive_finish or (not has_any_observations and len(self.graph.get_all_steps()) <= 1)
             elif is_observational:
-                is_identical_repeat = False
-                for prev_step in reversed(self.graph.get_all_steps()[-5:]):
+                # Contar cuántas veces previas se ha ejecutado exactamente la misma consulta en historial reciente
+                prior_identical_count = sum(
+                    1 for prev_step in self.graph.get_all_steps()[-10:]
                     if (
                         prev_step.id != step.id
                         and prev_step.tool_name == step.tool_name
                         and prev_step.tool_args == step.tool_args
-                    ):
-                        is_identical_repeat = True
-                        break
+                    )
+                )
+                in_chunk_prior_count = sum(
+                    1 for prev_c in candidate_steps[:idx]
+                    if prev_c.tool_name == step.tool_name and prev_c.tool_args == step.tool_args
+                )
+                # Las herramientas de inspección (read_file, list_dir, run_command de lectura) son seguras e informativas.
+                # Solo se consideran bucle si se han ejecutado 2 o más veces previamente (a partir del 3er intento idéntico).
+                is_identical_repeat = ((prior_identical_count + in_chunk_prior_count) >= 2)
                 step_has_failed = is_identical_repeat
             else:
                 step_has_failed = (
@@ -151,28 +158,29 @@ class JEVProxyMiddleware:
 
             if step_has_failed:
                 self.graph.remove_step(step.id)
-                loop_type = (
-                    LoopType.UNGROUNDED_PREMISE
-                    if (is_evasive_finish or has_prior_unexecuted_inspection)
-                    else (
-                        LoopType.HALLUCINATION
-                        if (is_hallucination and not is_observational)
-                        else (
-                            LoopType.ONE_HOP_TOOL_REPEAT
-                            if (is_ts_loop or (is_observational and is_identical_repeat))
-                            else LoopType.SEMANTIC_FIXATION
-                        )
-                    )
-                )
                 if is_evasive_finish or has_prior_unexecuted_inspection:
+                    loop_type = LoopType.UNGROUNDED_PREMISE
+                    diag_hallucination_type = "unverified_assumption"
                     explanation = (
                         "Finalización evasiva o premisa no fundamentada rechazada: el agente intenta concluir "
                         "sin fundamentar empíricamente su resultado en observaciones previas."
                     )
                 elif is_observational and is_identical_repeat:
-                    explanation = f"Reintento idéntico de la herramienta '{step.tool_name}' con los mismos argumentos ya obtenidos."
+                    loop_type = LoopType.ONE_HOP_TOOL_REPEAT
+                    diag_hallucination_type = "loop_repetition"
+                    explanation = (
+                        f"Reintento reiterado de '{step.tool_name}' ({json.dumps(step.tool_args or {})}). "
+                        "El contenido ya ha sido leído y está disponible en tus observaciones previas. "
+                        "Procede a utilizar esa información e invoca 'finish' con tu respuesta."
+                    )
+                elif is_hallucination:
+                    loop_type = LoopType.HALLUCINATION
+                    diag_hallucination_type = hallucination_type or "invented_fact_or_file"
+                    explanation = f"Alucinación detectada en paso {idx + 1} ('{step.tool_name}'): premisa no comprobada."
                 else:
-                    explanation = f"Alucinación o divergencia detectada en paso {idx + 1} ('{step.tool_name}')"
+                    loop_type = LoopType.ONE_HOP_TOOL_REPEAT if is_ts_loop else LoopType.SEMANTIC_FIXATION
+                    diag_hallucination_type = "loop_repetition"
+                    explanation = f"Bucle o estancamiento detectado en paso {idx + 1} ('{step.tool_name}')"
 
                 loop_rep = LoopReport(
                     loop_detected=True,
@@ -195,8 +203,8 @@ class JEVProxyMiddleware:
                     step_scores=step_scores,
                     directive=directive,
                     loop_report=loop_rep,
-                    hallucination_detected=is_hallucination,
-                    hallucination_type=hallucination_type,
+                    hallucination_detected=bool(is_hallucination and not is_observational),
+                    hallucination_type=diag_hallucination_type,
                     explanation=directive.message if directive else explanation,
                 )
 
