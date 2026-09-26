@@ -118,6 +118,7 @@ class OpenAICompatibleLLM(BaseAgentLLM):
         provider_name: str = "openai_compatible",
         timeout: float = 120.0,
         temperature: float = 0.2,
+        max_tokens: int = 1024,
     ) -> None:
         clean_url = base_url.rstrip("/")
         if not clean_url.endswith("/v1"):
@@ -129,6 +130,7 @@ class OpenAICompatibleLLM(BaseAgentLLM):
         self._provider_name = provider_name
         self._timeout = timeout
         self._temperature = temperature
+        self._max_tokens = max_tokens
 
     @property
     def provider_name(self) -> str:
@@ -158,6 +160,8 @@ class OpenAICompatibleLLM(BaseAgentLLM):
             "model": self._model,
             "messages": payload_messages,
             "temperature": self._temperature,
+            "max_tokens": self._max_tokens,
+            "stream": False,
         }
 
         headers = {
@@ -321,6 +325,7 @@ def create_agent_llm(
     api_key: Optional[str] = None,
     base_url: Optional[str] = None,
     timeout: float = 120.0,
+    max_tokens: int = 1024,
 ) -> BaseAgentLLM:
     """Fábrica universal para inicializar el cliente LLM del Agente Autónomo.
 
@@ -378,6 +383,7 @@ def create_agent_llm(
             api_key=key,
             provider_name="groq",
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     # Proveedor: Ollama Local
@@ -391,6 +397,7 @@ def create_agent_llm(
             api_key=api_key or "ollama",
             provider_name="ollama",
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     # Proveedor: OpenRouter
@@ -409,6 +416,7 @@ def create_agent_llm(
             api_key=key,
             provider_name="openrouter",
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     # Proveedor: LM Studio Local
@@ -422,6 +430,7 @@ def create_agent_llm(
             api_key="lm-studio",
             provider_name="lmstudio",
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     # Proveedor: OpenAI Oficial o Endpoint Genérico
@@ -436,6 +445,7 @@ def create_agent_llm(
             api_key=key,
             provider_name=prov_key,
             timeout=timeout,
+            max_tokens=max_tokens,
         )
 
     # Proveedor: Google Gemini
