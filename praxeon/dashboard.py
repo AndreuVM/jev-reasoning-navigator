@@ -650,7 +650,6 @@ def _execute_single_live_task(
                     v_tool = v_st.get("tool_name")
                     v_args = v_st.get("tool_args") or {}
                     v_thought = v_st.get("thought_rationale") or ""
-                    dash.executed_steps += 1
                     try:
                         v_obs = dash.middleware.execute_tool(v_tool, v_args, v_thought)
                         v_obs_str = str(v_obs.output)[:500]
@@ -665,7 +664,7 @@ def _execute_single_live_task(
                         "content": f"Observation: {v_obs_str}"
                     })
                     dash.record_step_result(
-                        step_name=f"Paso {dash.executed_steps}: {v_tool}",
+                        step_name=f"Paso {dash.executed_steps+1}: {v_tool}",
                         score_text="Noul 0.10 • ALLOW",
                         is_safe=True,
                         explanation="Paso previo del bloque ejecutado exitosamente.",
