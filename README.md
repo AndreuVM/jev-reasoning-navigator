@@ -37,6 +37,54 @@ python scripts/run_benchmarks.py
 
 ---
 
+## 🤖 Agente Autónomo en Vivo: Modelos Locales y Nube (Multi-Provider)
+
+En PRAXEON, el **Agente Autónomo** (que genera propuestas de razonamiento y acciones) está completamente desacoplado del **Supervisor Cognitivo de Runtime** (`LAYA` / `TypeSafe`).
+
+Para evitar cuotas y rate-limits estrictos (como los límites gratuitos de Google Gemini), PRAXEON soporta de forma nativa e integrada cualquier endpoint compatible con OpenAI, tanto en local como en la nube:
+
+| Proveedor | Tipo | Cuota / Coste | Velocidad | Comando de Inicio |
+| :--- | :---: | :---: | :---: | :--- |
+| **Ollama** *(Recomendado Local)* | 100% Local / Offline | **Ilimitado / 0€** | Según GPU/CPU | `praxeon live --provider ollama` |
+| **Groq Cloud** *(Recomendado Nube)* | Nube gratuita | **14.400 req/día, 30 RPM** | Ultra-rápido (~500 tok/s) | `praxeon live --provider groq` |
+| **OpenRouter** | Nube multimodelo | Modelos `:free` disponibles | Variable | `praxeon live --provider openrouter` |
+| **LM Studio** | Local | **Ilimitado / 0€** | Según GPU/CPU | `praxeon live --provider lmstudio` |
+| **Google Gemini** | Nube | Cuota Free Tier estándar | Estándar | `praxeon live --provider gemini` |
+| **Simulador Offline** | Determinista | **Ilimitado / 0€** | Inmediato | `praxeon live --provider simulated` |
+
+### 1. Usar Ollama en Local (Sin conexión a internet ni claves API)
+1. Instala [Ollama](https://ollama.com) y descarga un modelo de código:
+   ```bash
+   ollama run qwen2.5-coder:7b
+   # o para máquinas más ligeras:
+   ollama run llama3.2:3b
+   ```
+2. Ejecuta PRAXEON en vivo o en dashboard TUI:
+   ```bash
+   praxeon live --provider ollama --model qwen2.5-coder:7b
+   # o en el dashboard visual:
+   praxeon-dash --live --provider ollama
+   ```
+   *(PRAXEON detecta automáticamente si Ollama está en ejecución en `localhost:11434` sin configuración adicional).*
+
+### 2. Usar Groq Cloud (Gratuito, 14.400 peticiones diarias, ~500 tok/s)
+1. Consigue una clave gratuita en [Groq Console](https://console.groq.com) (tarda 30 segundos).
+2. Configura tu `.env`:
+   ```bash
+   GROQ_API_KEY=gsk_tu_clave_aqui
+   ```
+3. Ejecuta el agente con Llama 3.3 70B o Qwen 2.5 Coder 32B a máxima velocidad:
+   ```bash
+   praxeon live --provider groq --model llama-3.3-70b-versatile
+   # o en el dashboard interactivo:
+   praxeon-dash --live --provider groq
+   ```
+
+### 3. Recuperación Interactiva en Caliente (*Self-Healing / Fallback*)
+Si un proveedor experimenta un fallo de cuota (error HTTP 429), pérdida de conexión o clave inválida durante una sesión en vivo, PRAXEON no detiene el proceso abruptamente: despliega un menú interactivo en terminal que permite alternar a otro proveedor (ej. de Gemini a Groq o a Ollama local) e introducir una clave al vuelo sin perder la memoria acumulada de la sesión.
+
+---
+
 # PARTE I: ARQUITECTURA E IMPLEMENTACIÓN DOCUMENTADA
 
 ## 1. Pilares Arquitectónicos Fundamentales

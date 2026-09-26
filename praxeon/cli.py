@@ -424,12 +424,59 @@ def main() -> None:
     sim_parser.add_argument("--api-key", type=str, default=None, help="Clave API de TypeSafe AI (o configurar TYPESAFE_API_KEY en .env)")
 
     # Subcomando dashboard / visual
-    dash_parser = subparsers.add_parser("dashboard", aliases=["visual"], help="Panel visual interactivo TUI del trabajo conjunto Agente ⇄ JEV")
+    dash_parser = subparsers.add_parser("dashboard", aliases=["visual"], help="Panel visual interactivo TUI del trabajo conjunto Agente ⇄ PRAXEON")
     dash_parser.add_argument("--task", type=str, default=None, help="Objetivo o descripción de la tarea a visualizar")
     dash_parser.add_argument("--live", action="store_true", help="Ejecutar en modo vivo con agente LLM")
-    dash_parser.add_argument("--model", type=str, default="gemini-3.6-flash", help="Modelo LLM para modo vivo")
+    dash_parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Proveedor del Agent LLM (groq, ollama, openrouter, gemini, lmstudio, openai, simulated)",
+    )
+    dash_parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="URL base para OpenAI-compatible (ej. http://localhost:11434/v1 para Ollama)",
+    )
+    dash_parser.add_argument(
+        "--agent-key",
+        "--api-key",
+        dest="agent_key",
+        type=str,
+        default=None,
+        help="Clave API del proveedor LLM para el agente",
+    )
+    dash_parser.add_argument("--model", type=str, default=None, help="Modelo LLM para modo vivo")
     dash_parser.add_argument("--max-steps", type=int, default=25, help="Número máximo de turnos permitidos")
     dash_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir inmediatamente sin modo interactivo continuo")
+
+    # Subcomando live
+    live_parser = subparsers.add_parser("live", help="Ejecuta el agente autónomo con supervisión interactiva PRAXEON")
+    live_parser.add_argument("--task", type=str, default=None, help="Objetivo o descripción de la tarea a resolver")
+    live_parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Proveedor del Agent LLM (groq, ollama, openrouter, gemini, lmstudio, openai, simulated)",
+    )
+    live_parser.add_argument("--model", type=str, default=None, help="Modelo LLM a utilizar")
+    live_parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="URL base para OpenAI-compatible (ej. http://localhost:11434/v1 para Ollama)",
+    )
+    live_parser.add_argument(
+        "--api-key",
+        "--agent-key",
+        dest="agent_key",
+        type=str,
+        default=None,
+        help="Clave API para el Agent LLM",
+    )
+    live_parser.add_argument("--max-steps", "--steps", dest="max_steps", type=int, default=25, help="Número máximo de turnos")
+    live_parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir")
 
     # Subcomando benchmark
     bench_parser = subparsers.add_parser("benchmark", help="Ejecuta la suite formal de benchmarks y ablaciones")
@@ -443,7 +490,7 @@ def main() -> None:
     args = parser.parse_args()
 
     cfg = default_config.model_copy()
-    if getattr(args, "api_key", None):
+    if args.command in ("analyze", "simulate") and getattr(args, "api_key", None):
         cfg.typesafe_api_key = args.api_key
         cfg.use_typesafe_api = True
     elif getattr(args, "typesafe", False):
@@ -453,15 +500,29 @@ def main() -> None:
         analyze_trace_file(args.trace_path, config=cfg)
     elif args.command == "simulate":
         simulate_trace_execution(args.trace_path, config=cfg)
+    elif args.command == "live":
+        from praxeon.live_agent import run_live_agent
+        run_live_agent(
+            task=getattr(args, "task", None),
+            max_steps=getattr(args, "max_steps", 25),
+            config=cfg,
+            gemini_api_key=getattr(args, "agent_key", None),
+            model_name=getattr(args, "model", None),
+            provider=getattr(args, "provider", None),
+            base_url=getattr(args, "base_url", None),
+        )
     elif args.command in ("dashboard", "visual"):
         from praxeon.dashboard import run_visual_demo, run_visual_live
         if getattr(args, "live", False):
             run_visual_live(
                 task=getattr(args, "task", None),
-                model_name=getattr(args, "model", "gemini-3.6-flash"),
+                model_name=getattr(args, "model", None),
                 max_steps=getattr(args, "max_steps", 25),
                 config=cfg,
                 once=getattr(args, "once", False),
+                provider=getattr(args, "provider", None),
+                base_url=getattr(args, "base_url", None),
+                api_key=getattr(args, "agent_key", None),
             )
         else:
             run_visual_demo(

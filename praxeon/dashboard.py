@@ -488,14 +488,16 @@ def run_visual_demo(task: Optional[str] = None, once: bool = False):
 def _execute_single_live_task(
     goal: str,
     max_steps: int = 25,
-    model_name: str = "gemini-3.6-flash",
+    model_name: Optional[str] = None,
     config: Optional[JEVConfig] = None,
     session_context: Optional[SessionContextManager] = None,
     middleware: Optional[JEVProxyMiddleware] = None,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ) -> Tuple[bool, Optional[str], JEVDashboard, int, SessionContextManager, JEVProxyMiddleware]:
-    """Ejecuta una corrida individual en vivo del agente supervisado por TypeSafe AI manteniendo contexto acumulado."""
+    """Ejecuta una corrida individual en vivo del agente supervisado por PRAXEON manteniendo contexto acumulado."""
     cfg = config or default_config
-    api_key = os.getenv("GEMINI_API_KEY")
 
     session = session_context or SessionContextManager()
     if middleware is None:
@@ -503,25 +505,23 @@ def _execute_single_live_task(
     else:
         middleware.start_subtask(goal)
 
-    dash = JEVDashboard(goal=goal, model_name=f"{model_name} (En Vivo)", config=cfg)
+    from praxeon.agent_llm import create_agent_llm, SimulatedAgentLLM
+    try:
+        agent_llm = create_agent_llm(
+            provider=provider,
+            model=model_name,
+            api_key=api_key,
+            base_url=base_url,
+        )
+    except Exception as e:
+        console.print(f"[bold yellow]Aviso al inicializar LLM:[/] {e}. Usando simulador.")
+        agent_llm = SimulatedAgentLLM()
+
+    dash = JEVDashboard(goal=goal, model_name=f"{agent_llm.model_name} ({agent_llm.provider_name.upper()})", config=cfg)
     dash.middleware = middleware
     console.clear()
 
-    genai_client = None
-    genai_config = None
-    if api_key and api_key.strip() and api_key.lower() not in ("none", "null", "false", "simulator", "demo"):
-        try:
-            from google import genai
-            from google.genai import types
-            genai_client = genai.Client(api_key=api_key)
-            genai_config = types.GenerateContentConfig(
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-            )
-        except Exception:
-            genai_client = None
-
     conversation_history = session.prepare_task_conversation(goal)
-
     from praxeon.live_agent import parse_llm_steps
 
     final_summary: Optional[str] = None
@@ -536,94 +536,52 @@ def _execute_single_live_task(
             turn += 1
             dash.turn = turn
             dash.llm_calls += 1
-            dash.agent_status = f"⚡ Generando propuesta de bloque cognitivo (Turno {turn})..."
+            dash.agent_status = f"⚡ Generando propuesta de bloque cognitivo ({agent_llm.provider_name.upper()})..."
             live.update(dash.generate_layout())
 
             llm_output = ""
             while not llm_output and not task_finished:
-                if genai_client:
-                    try:
-                        is_antigravity = "antigravity" in model_name.lower()
-                        min_interval = 1.0 if is_antigravity else 3.5
-                        time.sleep(min_interval)
-                        prompt_parts = "\n\n".join(f"[{m['role'].upper()}]: {m['content']}" for m in conversation_history) + "\n\n[ASSISTANT]:\n"
-                        if is_antigravity:
-                            res = genai_client.interactions.create(model="antigravity-preview-09-2026", input=prompt_parts)
-                            llm_output = (res.output_text or "").strip()
-                        else:
-                            res = genai_client.models.generate_content(model=model_name, contents=prompt_parts, config=genai_config)
-                            llm_output = res.text.strip()
-                    except Exception as e:
-                        err_str = str(e)
-                        live.stop()
-                        from praxeon.model_recovery import prompt_model_recovery_menu
-                        action, payload = prompt_model_recovery_menu(
-                            error_message=err_str,
-                            current_model=model_name,
-                            console=console,
-                        )
-                        if action == "change_model" and payload:
-                            model_name = payload
-                            dash.model_name = f"{model_name} (En Vivo)"
-                            live.start()
-                            dash.agent_status = f"🔄 Reintentando con modelo '{model_name}'..."
-                            live.update(dash.generate_layout())
-                            continue
-                        elif action == "update_key" and payload:
-                            try:
-                                from google import genai
-                                from google.genai import types
-                                genai_client = genai.Client(api_key=payload)
-                                genai_config = types.GenerateContentConfig(
-                                    automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                                )
-                            except Exception as init_err:
-                                console.print(f"[bold red]Error inicializando cliente con nueva clave:[/] {init_err}")
-                            live.start()
-                            dash.agent_status = "🔄 Reintentando con nueva clave API..."
-                            live.update(dash.generate_layout())
-                            continue
-                        else:
-                            live.start()
-                            dash.agent_status = f"🚨 ERROR LLM: {err_str[:60]}"
-                            dash.supervisor_status = "❌ DETENIDO TRAS ERROR DE API / CUOTA"
-                            dash.supervisor_color = "red"
-                            live.update(dash.generate_layout())
-                            final_summary = f"Ejecución detenida por error en modelo {model_name}: {err_str[:80]}"
-                            task_finished = False
-                            break
-                else:
+                try:
+                    if agent_llm.provider_name == "gemini":
+                        time.sleep(2.0)
+                    llm_output = agent_llm.generate(conversation_history)
+                except Exception as e:
+                    err_str = str(e)
                     live.stop()
                     from praxeon.model_recovery import prompt_model_recovery_menu
                     action, payload = prompt_model_recovery_menu(
-                        error_message="No se encontró GEMINI_API_KEY en el entorno o .env",
-                        current_model=model_name,
+                        error_message=err_str,
+                        current_model=f"{agent_llm.provider_name}:{agent_llm.model_name}",
                         console=console,
                     )
-                    if action == "update_key" and payload:
-                        try:
-                            from google import genai
-                            from google.genai import types
-                            genai_client = genai.Client(api_key=payload)
-                            genai_config = types.GenerateContentConfig(
-                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                            )
-                        except Exception as init_err:
-                            console.print(f"[bold red]Error con clave API:[/] {init_err}")
+                    if action == "change_model" and payload:
+                        if ":" in payload:
+                            p_part, m_part = payload.split(":", 1)
+                            agent_llm = create_agent_llm(provider=p_part, model=m_part, base_url=base_url)
+                        else:
+                            agent_llm = create_agent_llm(provider=agent_llm.provider_name, model=payload, base_url=base_url)
+                        dash.model_name = f"{agent_llm.model_name} ({agent_llm.provider_name.upper()})"
                         live.start()
+                        dash.agent_status = f"🔄 Reintentando con {agent_llm.provider_name} ({agent_llm.model_name})..."
+                        live.update(dash.generate_layout())
                         continue
-                    elif action == "change_model" and payload:
-                        model_name = payload
-                        dash.model_name = f"{model_name} (En Vivo)"
+                    elif action == "update_key" and payload:
+                        if ":" in payload:
+                            k_name, k_val = payload.split(":", 1)
+                        else:
+                            k_val = payload
+                        agent_llm = create_agent_llm(provider=agent_llm.provider_name, model=agent_llm.model_name, api_key=k_val, base_url=base_url)
                         live.start()
+                        dash.agent_status = "🔄 Reintentando con clave actualizada..."
+                        live.update(dash.generate_layout())
                         continue
                     else:
                         live.start()
-                        dash.agent_status = "🚨 ERROR: Sin clave GEMINI_API_KEY configurada."
-                        dash.supervisor_status = "❌ DETENIDO SIN CLAVE API"
+                        dash.agent_status = f"🚨 ERROR LLM: {err_str[:60]}"
+                        dash.supervisor_status = "❌ DETENIDO TRAS ERROR DE API / CUOTA"
                         dash.supervisor_color = "red"
                         live.update(dash.generate_layout())
-                        final_summary = "Falta configurar GEMINI_API_KEY en .env"
+                        final_summary = f"Ejecución detenida por error en {agent_llm.provider_name}: {err_str[:80]}"
                         task_finished = False
                         break
 
@@ -976,14 +934,17 @@ def _display_task_results(
 def run_visual_live(
     task: Optional[str] = None,
     max_steps: int = 25,
-    model_name: str = "gemini-3.6-flash",
+    model_name: Optional[str] = None,
     config: Optional[JEVConfig] = None,
     once: bool = False,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
+    api_key: Optional[str] = None,
 ):
-    """Ejecuta una sesión interactiva continua con el agente LLM y el supervisor TypeSafe AI."""
+    """Ejecuta una sesión interactiva continua con el agente LLM y el supervisor TypeSafe AI / PRAXEON."""
     console.print(Panel(
-        "[bold cyan]🚀 JEV Reasoning Navigator ⇄ TypeSafe AI (System One)[/]\n"
-        "[dim]Sesión interactiva en vivo con supervisión cognitiva y prevención de alucinaciones.[/]\n"
+        "[bold cyan]🚀 PRAXEON Runtime Supervision ⇄ Agent LLM (System One)[/]\n"
+        "[dim]Sesión interactiva en vivo con supervisión cognitiva, prevención de bucles y capabilities.[/]\n"
         "[dim]Introduce tus objetivos o tareas. Para salir en cualquier momento escribe [bold red]'salir'[/] o [bold red]'exit'[/].[/]",
         title="🌟 [bold magenta]Modo Interactivo Continuo (En Vivo)[/]",
         border_style="magenta",
@@ -1022,6 +983,9 @@ def run_visual_live(
             config=config,
             session_context=session_context,
             middleware=middleware,
+            provider=provider,
+            base_url=base_url,
+            api_key=api_key,
         )
 
         # Mostrar métricas y respuesta final
@@ -1037,12 +1001,32 @@ def run_visual_live(
 def main():
     """Punto de entrada CLI para el visualizador interactivo."""
     parser = argparse.ArgumentParser(
-        prog="jev-dash",
-        description="Visualizador CLI interactivo de trabajo conjunto Agente ⇄ TypeSafe AI",
+        prog="praxeon-dash",
+        description="Visualizador CLI interactivo de trabajo conjunto Agente ⇄ PRAXEON Runtime Supervisor",
     )
     parser.add_argument("--task", type=str, default=None, help="Objetivo o tarea a visualizar")
     parser.add_argument("--live", action="store_true", help="Ejecutar en modo vivo con agente LLM")
-    parser.add_argument("--model", type=str, default="gemini-3.6-flash", help="Modelo LLM para modo vivo")
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default=None,
+        help="Proveedor del Agent LLM (groq, ollama, openrouter, gemini, lmstudio, openai, simulated)",
+    )
+    parser.add_argument(
+        "--base-url",
+        type=str,
+        default=None,
+        help="URL base para OpenAI-compatible (ej. http://localhost:11434/v1 para Ollama)",
+    )
+    parser.add_argument(
+        "--api-key",
+        "--gemini-key",
+        dest="api_key",
+        type=str,
+        default=None,
+        help="Clave API del proveedor LLM seleccionado",
+    )
+    parser.add_argument("--model", type=str, default=None, help="Modelo LLM para modo vivo")
     parser.add_argument("--max-steps", type=int, default=25, help="Número máximo de turnos permitidos")
     parser.add_argument("--once", action="store_true", help="Ejecutar una única tarea y salir")
     args = parser.parse_args()
@@ -1053,6 +1037,9 @@ def main():
             model_name=args.model,
             max_steps=args.max_steps,
             once=args.once,
+            provider=args.provider,
+            base_url=args.base_url,
+            api_key=args.api_key,
         )
     else:
         run_visual_demo(task=args.task, once=args.once)

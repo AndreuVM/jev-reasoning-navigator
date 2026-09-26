@@ -209,26 +209,23 @@ def parse_llm_steps(llm_output: str) -> List[Dict[str, Any]]:
     return steps
 
 
-def run_live_gemini_agent(
+def run_live_agent(
     task: str,
     max_steps: int = 15,
     config: Optional[JEVConfig] = None,
     gemini_api_key: Optional[str] = None,
-    model_name: str = "gemini-3.8-flash",
+    model_name: Optional[str] = None,
     session_context: Optional[SessionContextManager] = None,
     middleware: Optional[JEVProxyMiddleware] = None,
+    provider: Optional[str] = None,
+    base_url: Optional[str] = None,
 ) -> Tuple[bool, str, SessionContextManager, JEVProxyMiddleware]:
-    """Ejecuta un bucle de razonamiento de Gemini supervisado en bloques por JEV.
+    """Ejecuta un bucle de razonamiento de agente supervisado en bloques por PRAXEON.
     
-    Optimiza el consumo de peticiones y mantiene memoria acumulada entre tareas concatenadas:
-    - Agrupa los pasos candidatos y los evalúa en TypeSafe en una sola llamada.
-    - Ejecuta pasos autorizados secuencialmente sin consultar a Gemini tras cada paso.
-    - Devuelve el control a Gemini solo cuando JEV detecta una alucinación/bucle, 
-      ocurre un error crítico o finaliza el bloque planificado.
-    - Si max_steps <= 0, funciona en modo ilimitado hasta que el agente llame a finish.
+    Soporta múltiples proveedores LLM (Ollama, Groq, OpenRouter, Gemini, OpenAI) mediante
+    la interfaz universal `praxeon.agent_llm.create_agent_llm`.
     """
     cfg = config or default_config
-    api_key = gemini_api_key or os.getenv("GEMINI_API_KEY")
     is_unlimited = (max_steps <= 0)
 
     session = session_context or SessionContextManager()
@@ -237,34 +234,32 @@ def run_live_gemini_agent(
     else:
         middleware.start_subtask(task)
 
+    from praxeon.agent_llm import create_agent_llm, SimulatedAgentLLM
+    try:
+        agent_llm = create_agent_llm(
+            provider=provider,
+            model=model_name,
+            api_key=gemini_api_key,
+            base_url=base_url,
+        )
+    except Exception as e:
+        console.print(f"[bold yellow]Aviso al inicializar LLM:[/] {e}. Usando simulador de agente.")
+        agent_llm = SimulatedAgentLLM()
+
     console.print(Panel(
         f"[bold white]Tarea del Agente:[/] {task}\n"
-        f"[bold white]Supervisor JEV:[/] TypeSafe AI (Modelo Jev - System One Chunked)\n"
-        f"[bold white]Modelo LLM Agente:[/] {model_name} (Google GenAI)\n"
+        f"[bold white]Supervisor Runtime:[/] PRAXEON (TypeSafe / LAYA)\n"
+        f"[bold white]Modelo LLM Agente:[/] [bold cyan]{agent_llm.model_name}[/] ({agent_llm.provider_name.upper()})\n"
         f"[bold white]Límite de Pasos:[/] {'Ilimitado (hasta invocar finish)' if is_unlimited else f'{max_steps} pasos'}\n"
         f"[bold white]Tamaño de bloque (Chunk Size):[/] {cfg.evaluation_chunk_size} pasos por lote\n"
         f"[bold white]Contexto de Sesión:[/] {'Primera tarea (limpia)' if session.is_empty() else f'Heredando memoria de {len(session.task_records)} tarea(s) previa(s)'}",
-        title="🤖 [bold green]Live Agent Loop Supervisado por JEV (Memoria Continua)[/]",
+        title="🤖 [bold green]Live Agent Loop Supervisado por PRAXEON (Memoria Continua)[/]",
         border_style="green",
     ))
 
     # Mostrar resumen de tareas previas si existen
     if not session.is_empty():
         console.print(session.get_summary_panel())
-
-    genai_client = None
-    genai_config = None
-    if api_key and api_key.strip() and api_key.lower() not in ("none", "null", "false", "simulator", "demo"):
-        try:
-            from google import genai
-            from google.genai import types
-            genai_client = genai.Client(api_key=api_key)
-            genai_config = types.GenerateContentConfig(
-                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-            )
-            console.print("[dim]✓ Cliente Gemini conectado con éxito.[/]")
-        except Exception as e:
-            console.print(f"[bold yellow]Aviso:[/] No se pudo inicializar google-genai ({e}). Usando simulador de agente.")
 
     chunk_size = cfg.evaluation_chunk_size
     conversation_history: List[Dict[str, str]] = session.prepare_task_conversation(task)
@@ -273,13 +268,13 @@ def run_live_gemini_agent(
     executed_step_records: List[Dict[str, Any]] = []
     final_summary: str = ""
     final_answer: str = ""
-    gemini_calls_count = 0
+    llm_calls_count = 0
     typesafe_calls_count = 0
     interventions_count = 0
     sim_turn = 0
     task_finished = False
 
-    last_gemini_call_time = 0.0
+    last_llm_call_time = 0.0
 
     consecutive_blocks = 0
     max_turns = 1000000 if is_unlimited else (max_steps + 4)
@@ -287,77 +282,58 @@ def run_live_gemini_agent(
         sim_turn += 1
         console.print(f"\n[bold magenta]━━━━━━━━━━━━━━━ Fase de Generación LLM (Turno {sim_turn}) ━━━━━━━━━━━━━━━[/]")
 
-        # 1. Llamar a Gemini solo cuando se requiere nueva formulación cognitiva
-        gemini_calls_count += 1
+        llm_calls_count += 1
         llm_output = ""
 
-        if genai_client:
-            max_retries = 3
-            for attempt in range(max_retries):
-                try:
-                    is_antigravity = "antigravity" in model_name.lower()
-                    min_interval = 1.2 if is_antigravity else 12.5
-
-                    elapsed = time.time() - last_gemini_call_time
-                    if last_gemini_call_time > 0 and elapsed < min_interval:
-                        wait_rpm = min_interval - elapsed
-                        console.print(f"[dim]⏳ Pausa preventiva de {wait_rpm:.1f}s para respetar límite de {'60 RPM' if is_antigravity else '5 RPM'}...[/]")
+        max_retries = 3
+        for attempt in range(max_retries):
+            try:
+                if agent_llm.provider_name == "gemini":
+                    elapsed = time.time() - last_llm_call_time
+                    if last_llm_call_time > 0 and elapsed < 4.0:
+                        wait_rpm = 4.0 - elapsed
                         time.sleep(wait_rpm)
 
-                    target_model = "antigravity-preview-09-2026" if model_name.lower() in ("antigravity", "antigravity-preview") else model_name
-                    console.print(f"[dim]⚡ Consultando {'Antigravity API' if is_antigravity else 'Gemini API'} ({target_model})... [Llamada #{gemini_calls_count}][/]")
-                    last_gemini_call_time = time.time()
-                    prompt_parts = build_optimized_prompt(conversation_history)
-
-                    if is_antigravity:
-                        interaction_res = genai_client.interactions.create(
-                            model=target_model,
-                            input=prompt_parts,
-                        )
-                        llm_output = (interaction_res.output_text or "").strip()
+                console.print(f"[dim]⚡ Consultando {agent_llm.provider_name.upper()} ({agent_llm.model_name})... [Llamada #{llm_calls_count}][/]")
+                last_llm_call_time = time.time()
+                llm_output = agent_llm.generate(conversation_history)
+                console.print(f"[bold white]LLM Output ({agent_llm.provider_name}):[/]\n{llm_output}")
+                break
+            except Exception as err:
+                err_str = str(err)
+                console.print(f"[bold red]Error en API de {agent_llm.provider_name}:[/] {err_str}")
+                from praxeon.model_recovery import prompt_model_recovery_menu
+                action, payload = prompt_model_recovery_menu(
+                    error_message=err_str,
+                    current_model=f"{agent_llm.provider_name}:{agent_llm.model_name}",
+                    console=console,
+                )
+                if action == "change_model" and payload:
+                    if ":" in payload:
+                        p_part, m_part = payload.split(":", 1)
+                        agent_llm = create_agent_llm(provider=p_part, model=m_part, base_url=base_url)
                     else:
-                        response = genai_client.models.generate_content(
-                            model=model_name,
-                            contents=prompt_parts,
-                            config=genai_config,
-                        )
-                        llm_output = response.text.strip()
-
-                    console.print(f"[bold white]LLM Output:[/]\n{llm_output}")
+                        agent_llm = create_agent_llm(provider=agent_llm.provider_name, model=payload, base_url=base_url)
+                    console.print(f"[green]✓ Cambiado a {agent_llm.provider_name} ({agent_llm.model_name}). Reintentando...[/]")
+                    continue
+                elif action == "update_key" and payload:
+                    if ":" in payload:
+                        k_name, k_val = payload.split(":", 1)
+                    else:
+                        k_val = payload
+                    agent_llm = create_agent_llm(provider=agent_llm.provider_name, model=agent_llm.model_name, api_key=k_val, base_url=base_url)
+                    console.print("[green]✓ Clave actualizada. Reintentando...[/]")
+                    continue
+                else:
+                    console.print("[yellow]Ejecución detenida tras error de LLM o cancelación del usuario.[/]")
+                    llm_output = ""
                     break
-                except Exception as err:
-                    err_str = str(err)
-                    console.print(f"[bold red]Error en API de Gemini:[/] {err_str}")
-                    from praxeon.model_recovery import prompt_model_recovery_menu
-                    action, payload = prompt_model_recovery_menu(
-                        error_message=err_str,
-                        current_model=model_name,
-                        console=console,
-                    )
-                    if action == "change_model" and payload:
-                        model_name = payload
-                        console.print(f"[green]✓ Cambiado a modelo {model_name}. Reintentando...[/]")
-                        continue
-                    elif action == "update_key" and payload:
-                        try:
-                            from google import genai
-                            from google.genai import types
-                            genai_client = genai.Client(api_key=payload)
-                            genai_config = types.GenerateContentConfig(
-                                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
-                            )
-                            console.print("[green]✓ Clave actualizada. Reintentando...[/]")
-                        except Exception as init_err:
-                            console.print(f"[bold red]Error con nueva clave:[/] {init_err}")
-                        continue
-                    else:
-                        console.print("[yellow]Ejecución detenida tras error de API o cancelación del usuario.[/]")
-                        llm_output = ""
-                        break
 
         if not llm_output:
-            console.print("[bold red]❌ No se obtuvo respuesta del modelo LLM. Finalizando tarea sin ejecutar simulaciones falsas.[/]")
+            console.print("[bold red]❌ No se obtuvo respuesta del modelo LLM. Finalizando tarea.[/]")
             break
+
+
 
 
         # 2. Extraer pasos candidatos del bloque propuesto
@@ -590,16 +566,29 @@ def run_live_gemini_agent(
     return (task_finished, resolved_answer, session, middleware)
 
 
+def run_live_gemini_agent(*args, **kwargs):
+    """Alias retrocompatible para run_live_agent."""
+    return run_live_agent(*args, **kwargs)
+
+
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Live Agent Loop supervisado por JEV")
+    parser = argparse.ArgumentParser(description="Live Agent Loop supervisado por PRAXEON")
     parser.add_argument("task", type=str, nargs="?", default=None, help="Objetivo o tarea del agente")
     parser.add_argument("--goal", "-g", type=str, default=None, help="Objetivo o tarea del agente (alias de task)")
     parser.add_argument("--once", action="store_true", help="Ejecutar solo el objetivo especificado y salir sin modo interactivo continuo")
     parser.add_argument("--steps", type=int, default=15, help="Máximo número de pasos por tarea (usa 0 para modo ilimitado)")
     parser.add_argument("--chunk-size", type=int, default=3, help="Tamaño de bloque para evaluación agrupada")
     parser.add_argument("--typesafe", action="store_true", help="Utilizar TypeSafe AI como evaluador")
-    parser.add_argument("--gemini-key", type=str, default=None, help="API key de Gemini")
-    parser.add_argument("--model", type=str, default="gemini-3.8-flash", help="Modelo de Gemini a utilizar")
+    parser.add_argument(
+        "--provider",
+        type=str,
+        default="auto",
+        choices=["auto", "groq", "ollama", "openrouter", "lmstudio", "openai", "gemini", "simulator"],
+        help="Proveedor del LLM del agente (auto, groq, ollama, openrouter, gemini, etc.)",
+    )
+    parser.add_argument("--base-url", type=str, default=None, help="URL base para servidor local (Ollama/LM Studio) o endpoint OpenAI-compatible")
+    parser.add_argument("--api-key", "--gemini-key", dest="api_key", type=str, default=None, help="Clave de API del LLM")
+    parser.add_argument("--model", type=str, default=None, help="Modelo LLM a utilizar")
     args = parser.parse_args()
 
     cfg = default_config.model_copy()
@@ -672,10 +661,12 @@ def main() -> None:
             task=current_task,
             max_steps=args.steps,
             config=cfg,
-            gemini_api_key=args.gemini_key,
+            gemini_api_key=args.api_key,
             model_name=args.model,
             session_context=session_context,
             middleware=middleware,
+            provider=args.provider,
+            base_url=args.base_url,
         )
         if isinstance(res, tuple) and len(res) >= 4:
             _, _, session_context, middleware = res

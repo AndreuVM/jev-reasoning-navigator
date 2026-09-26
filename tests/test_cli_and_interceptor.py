@@ -295,40 +295,42 @@ def test_model_recovery_menu_options(monkeypatch, tmp_path):
     import io
     from praxeon.model_recovery import prompt_model_recovery_menu, _persist_api_key_to_env
 
-    # 1. Opción 1: gemini-3.6-flash
+    # 1. Opción 1: Groq (con GROQ_API_KEY presente en env)
+    monkeypatch.setenv("GROQ_API_KEY", "mock_groq_key")
     monkeypatch.setattr("sys.stdin", io.StringIO("1\n"))
     action, payload = prompt_model_recovery_menu("429 Cuota agotada", "gemini-2.5-flash")
     assert action == "change_model"
-    assert payload == "gemini-3.6-flash"
+    assert payload == "groq:llama-3.3-70b-versatile"
 
-    # 2. Opción 2: gemma-4-26b-a4b-it
-    monkeypatch.setattr("sys.stdin", io.StringIO("2\n"))
-    action, payload = prompt_model_recovery_menu("429 Cuota agotada", "gemini-3.6-flash")
+    # 2. Opción 3: Ollama local (sin requerir clave de API)
+    monkeypatch.setattr("sys.stdin", io.StringIO("3\n"))
+    action, payload = prompt_model_recovery_menu("429 Cuota agotada", "groq:llama-3.3-70b-versatile")
     assert action == "change_model"
-    assert payload == "gemma-4-26b-a4b-it"
+    assert payload == "ollama:qwen2.5-coder:7b"
 
-    # 3. Opción 5: gemini-2.5-flash
-    monkeypatch.setattr("sys.stdin", io.StringIO("5\n"))
-    action, payload = prompt_model_recovery_menu("429 Cuota agotada", "gemini-3.6-flash")
+    # 3. Opción 6: gemini-3.6-flash (con GEMINI_API_KEY presente)
+    monkeypatch.setenv("GEMINI_API_KEY", "mock_gemini_key")
+    monkeypatch.setattr("sys.stdin", io.StringIO("6\n"))
+    action, payload = prompt_model_recovery_menu("429 Cuota agotada", "ollama:qwen2.5-coder:7b")
     assert action == "change_model"
-    assert payload == "gemini-2.5-flash"
+    assert payload == "gemini:gemini-3.6-flash"
 
-    # 3. Opción 6: Modelo personalizado
-    monkeypatch.setattr("sys.stdin", io.StringIO("6\ngemini-2.0-flash-exp\n"))
+    # 4. Opción 8: Modelo personalizado
+    monkeypatch.setattr("sys.stdin", io.StringIO("8\ngroq:llama-3.1-8b-instant\n"))
     action, payload = prompt_model_recovery_menu("Error 404", "gemini-3.6-flash")
     assert action == "change_model"
-    assert payload == "gemini-2.0-flash-exp"
+    assert payload == "groq:llama-3.1-8b-instant"
 
-    # 4. Opción 8: Cancelar
-    monkeypatch.setattr("sys.stdin", io.StringIO("8\n"))
+    # 5. Opción 10: Cancelar
+    monkeypatch.setattr("sys.stdin", io.StringIO("10\n"))
     action, payload = prompt_model_recovery_menu("Error fatal", "gemini-3.6-flash")
     assert action == "abort"
     assert payload is None
 
-    # 5. Persistencia de API Key en archivo
+    # 6. Persistencia de API Key en archivo
     test_env = tmp_path / ".env.test"
     test_env.write_text("GEMINI_API_KEY=old_key\nTYPESAFE_API_KEY=safe_key\n", encoding="utf-8")
-    _persist_api_key_to_env("new_secret_key", env_path=str(test_env))
+    _persist_api_key_to_env("new_secret_key", key_name="GEMINI_API_KEY", env_path=str(test_env))
     content = test_env.read_text(encoding="utf-8")
     assert "GEMINI_API_KEY=new_secret_key" in content
     assert "TYPESAFE_API_KEY=safe_key" in content

@@ -1,0 +1,468 @@
+"""Módulo de cliente LLM desacoplado para el Agente Autónomo en PRAXEON.
+
+Permite sustituir o complementar Google Gemini con proveedores locales (Ollama, LM Studio)
+o en la nube con tiers gratuitos generosos (Groq, OpenRouter, OpenAI-compatible) mediante la API
+estándar de chat completions (usando urllib nativo, sin dependencias externas pesadas).
+"""
+
+from abc import ABC, abstractmethod
+import json
+import os
+import re
+import time
+from typing import Any, Dict, List, Optional, Tuple
+import urllib.error
+import urllib.request
+
+
+PROVIDER_PRESETS: Dict[str, Dict[str, Any]] = {
+    "groq": {
+        "base_url": "https://api.groq.com/openai/v1",
+        "default_model": "llama-3.3-70b-versatile",
+        "description": "Groq Cloud (Tier gratuito ultrarrápido: 30 RPM, 14.400 peticiones/día)",
+        "env_key": "GROQ_API_KEY",
+        "requires_key": True,
+        "recommended_models": [
+            "llama-3.3-70b-versatile",
+            "qwen-2.5-coder-32b",
+            "deepseek-r1-distill-llama-70b",
+            "llama-3.1-8b-instant",
+        ],
+    },
+    "ollama": {
+        "base_url": "http://localhost:11434/v1",
+        "default_model": "qwen2.5-coder:7b",
+        "description": "Ollama Local (100% privado, offline, sin coste ni límites de cuota)",
+        "env_key": "OLLAMA_API_KEY",
+        "requires_key": False,
+        "recommended_models": [
+            "qwen2.5-coder:7b",
+            "qwen2.5-coder:14b",
+            "llama3.2:3b",
+            "deepseek-r1:7b",
+            "mistral:7b",
+        ],
+    },
+    "openrouter": {
+        "base_url": "https://openrouter.ai/api/v1",
+        "default_model": "qwen/qwen-2.5-coder-32b-instruct:free",
+        "description": "OpenRouter (Modelos gratuitos con sufijo :free y catálogo multimodelo)",
+        "env_key": "OPENROUTER_API_KEY",
+        "requires_key": True,
+        "recommended_models": [
+            "qwen/qwen-2.5-coder-32b-instruct:free",
+            "meta-llama/llama-3.3-70b-instruct:free",
+            "deepseek/deepseek-r1:free",
+        ],
+    },
+    "lmstudio": {
+        "base_url": "http://localhost:1234/v1",
+        "default_model": "local-model",
+        "description": "LM Studio Local (Servidor local compatible con OpenAI en http://localhost:1234)",
+        "env_key": "LM_STUDIO_API_KEY",
+        "requires_key": False,
+        "recommended_models": ["local-model"],
+    },
+    "openai": {
+        "base_url": "https://api.openai.com/v1",
+        "default_model": "gpt-4o-mini",
+        "description": "OpenAI API Oficial",
+        "env_key": "OPENAI_API_KEY",
+        "requires_key": True,
+        "recommended_models": ["gpt-4o-mini", "gpt-4o"],
+    },
+    "gemini": {
+        "base_url": None,
+        "default_model": "gemini-3.6-flash",
+        "description": "Google GenAI / Gemini",
+        "env_key": "GEMINI_API_KEY",
+        "requires_key": True,
+        "recommended_models": [
+            "gemini-3.6-flash",
+            "gemma-4-26b-a4b-it",
+            "gemma-4-31b-it",
+        ],
+    },
+}
+
+
+class BaseAgentLLM(ABC):
+    """Interfaz base para modelos LLM generativos del Agente Autónomo."""
+
+    @property
+    @abstractmethod
+    def provider_name(self) -> str:
+        """Nombre del proveedor del LLM."""
+        pass
+
+    @property
+    @abstractmethod
+    def model_name(self) -> str:
+        """Nombre o identificador del modelo."""
+        pass
+
+    @abstractmethod
+    def generate(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None) -> str:
+        """Genera una respuesta en formato texto para el turno del agente."""
+        pass
+
+
+class OpenAICompatibleLLM(BaseAgentLLM):
+    """Cliente universal compatible con OpenAI (Ollama, LM Studio, Groq, OpenRouter, Mistral, etc.)."""
+
+    def __init__(
+        self,
+        base_url: str,
+        model: str,
+        api_key: Optional[str] = None,
+        provider_name: str = "openai_compatible",
+        timeout: float = 60.0,
+        temperature: float = 0.2,
+    ) -> None:
+        clean_url = base_url.rstrip("/")
+        if not clean_url.endswith("/v1"):
+            clean_url = f"{clean_url}/v1"
+        self._endpoint = f"{clean_url}/chat/completions"
+        self._base_url = clean_url
+        self._model = model
+        self._api_key = api_key or "sk-no-key-required"
+        self._provider_name = provider_name
+        self._timeout = timeout
+        self._temperature = temperature
+
+    @property
+    def provider_name(self) -> str:
+        return self._provider_name
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    @property
+    def endpoint(self) -> str:
+        return self._endpoint
+
+    def generate(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None) -> str:
+        payload_messages: List[Dict[str, str]] = []
+        if system_prompt:
+            payload_messages.append({"role": "system", "content": system_prompt})
+
+        for m in messages:
+            role = m.get("role", "user")
+            content = m.get("content", "")
+            if role not in ("system", "user", "assistant"):
+                role = "user"
+            payload_messages.append({"role": role, "content": content})
+
+        payload = {
+            "model": self._model,
+            "messages": payload_messages,
+            "temperature": self._temperature,
+        }
+
+        headers = {
+            "Content-Type": "application/json",
+            "User-Agent": "Praxeon/0.4.0 (Autonomous Agent Runtime)",
+        }
+        if self._api_key and self._api_key != "none":
+            headers["Authorization"] = f"Bearer {self._api_key}"
+
+        if "openrouter" in self._provider_name.lower() or "openrouter" in self._base_url:
+            headers["HTTP-Referer"] = "https://github.com/AndreuVM/praxeon"
+            headers["X-Title"] = "PRAXEON Agent Supervisor"
+
+        req_bytes = json.dumps(payload).encode("utf-8")
+        req = urllib.request.Request(self._endpoint, data=req_bytes, headers=headers, method="POST")
+
+        try:
+            with urllib.request.urlopen(req, timeout=self._timeout) as resp:
+                resp_bytes = resp.read()
+                data = json.loads(resp_bytes.decode("utf-8"))
+                choices = data.get("choices", [])
+                if not choices:
+                    return ""
+                msg = choices[0].get("message", {})
+                return (msg.get("content") or "").strip()
+        except urllib.error.HTTPError as http_err:
+            body = ""
+            try:
+                body = http_err.read().decode("utf-8", errors="replace")
+            except Exception:
+                pass
+            if http_err.code == 429:
+                raise RuntimeError(
+                    f"[{self._provider_name}] Límite de cuota excedido (HTTP 429) en {self._endpoint}. "
+                    f"Detalle: {body}"
+                ) from http_err
+            elif http_err.code in (401, 403):
+                raise RuntimeError(
+                    f"[{self._provider_name}] Error de autenticación (HTTP {http_err.code}). "
+                    f"Verifica la clave de API para {self._provider_name}. Detalle: {body}"
+                ) from http_err
+            else:
+                raise RuntimeError(
+                    f"[{self._provider_name}] Error HTTP {http_err.code} llamando a {self._endpoint}: {body}"
+                ) from http_err
+        except urllib.error.URLError as url_err:
+            if "localhost" in self._endpoint or "127.0.0.1" in self._endpoint:
+                raise ConnectionError(
+                    f"[{self._provider_name}] No se pudo conectar al servidor local en {self._base_url}. "
+                    "Verifica que el servicio (ej. 'ollama serve' o LM Studio) esté activo y escuchando."
+                ) from url_err
+            raise ConnectionError(
+                f"[{self._provider_name}] Error de conexión de red hacia {self._endpoint}: {url_err.reason}"
+            ) from url_err
+
+
+class GeminiLLM(BaseAgentLLM):
+    """Cliente para la API de Google GenAI / Gemini."""
+
+    def __init__(self, api_key: str, model: str = "gemini-3.6-flash") -> None:
+        self._api_key = api_key
+        self._model = model
+        try:
+            from google import genai
+            from google.genai import types
+            self._client = genai.Client(api_key=api_key)
+            self._config = types.GenerateContentConfig(
+                automatic_function_calling=types.AutomaticFunctionCallingConfig(disable=True)
+            )
+        except ImportError as imp_err:
+            raise ImportError(
+                "El paquete 'google-genai' no está instalado. Ejecuta 'pip install google-genai'."
+            ) from imp_err
+
+    @property
+    def provider_name(self) -> str:
+        return "gemini"
+
+    @property
+    def model_name(self) -> str:
+        return self._model
+
+    def generate(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None) -> str:
+        prompt_parts: List[str] = []
+        if system_prompt:
+            prompt_parts.append(f"[SYSTEM]: {system_prompt}")
+
+        for m in messages:
+            role = m.get("role", "user").upper()
+            prompt_parts.append(f"[{role}]: {m.get('content', '')}")
+        prompt_parts.append("[ASSISTANT]:\n")
+
+        full_prompt = "\n\n".join(prompt_parts)
+
+        is_antigravity = "antigravity" in self._model.lower()
+        if is_antigravity:
+            res = self._client.interactions.create(
+                model="antigravity-preview-09-2026",
+                input=full_prompt,
+            )
+            return (res.output_text or "").strip()
+        else:
+            res = self._client.models.generate_content(
+                model=self._model,
+                contents=full_prompt,
+                config=self._config,
+            )
+            return (res.text or "").strip()
+
+
+class SimulatedAgentLLM(BaseAgentLLM):
+    """Simulador determinista de agente para demostraciones offline y tests sin llamadas a API."""
+
+    def __init__(self, model_name: str = "agent-simulator") -> None:
+        self._model_name = model_name
+        self._step_counter = 0
+
+    @property
+    def provider_name(self) -> str:
+        return "simulator"
+
+    @property
+    def model_name(self) -> str:
+        return self._model_name
+
+    def generate(self, messages: List[Dict[str, str]], system_prompt: Optional[str] = None) -> str:
+        self._step_counter += 1
+        last_msg = messages[-1]["content"] if messages else ""
+
+        if self._step_counter == 1:
+            return (
+                "Thought: Primero exploraré el directorio del proyecto para entender su estructura.\n"
+                'Action: run_command("dir /b")'
+            )
+        elif self._step_counter == 2:
+            return (
+                "Thought: Leeré el archivo de configuración para verificar dependencias.\n"
+                'Action: read_file("pyproject.toml")'
+            )
+        else:
+            return (
+                "Thought: He recopilado la información necesaria y he concluido la tarea.\n"
+                'Action: finish("Tarea completada con éxito tras inspeccionar el entorno.")'
+            )
+
+
+def is_ollama_online(host: str = "http://localhost:11434") -> bool:
+    """Comprueba de forma no bloqueante (<200ms) si el daemon de Ollama está activo."""
+    try:
+        url = f"{host.rstrip('/')}/api/tags"
+        req = urllib.request.Request(url, headers={"User-Agent": "Praxeon/0.4.0"})
+        with urllib.request.urlopen(req, timeout=0.25) as resp:
+            return resp.status == 200
+    except Exception:
+        return False
+
+
+def create_agent_llm(
+    provider: Optional[str] = None,
+    model: Optional[str] = None,
+    api_key: Optional[str] = None,
+    base_url: Optional[str] = None,
+    timeout: float = 60.0,
+) -> BaseAgentLLM:
+    """Fábrica universal para inicializar el cliente LLM del Agente Autónomo.
+
+    Args:
+        provider: 'auto', 'groq', 'ollama', 'openrouter', 'lmstudio', 'openai', 'gemini' o 'simulator'.
+        model: Identificador del modelo (si no se indica, usa el recomendado del proveedor).
+        api_key: Clave de API (o tomada automáticamente de variables de entorno).
+        base_url: URL base personalizada para endpoints OpenAI-compatible.
+        timeout: Timeout de conexión y generación en segundos.
+
+    Returns:
+        Instancia de BaseAgentLLM lista para generar respuestas.
+    """
+    prov_key = (provider or "auto").lower().strip()
+
+    # Detección automática inteligente cuando provider es 'auto'
+    if prov_key == "auto":
+        groq_key = api_key or os.getenv("GROQ_API_KEY")
+        openrouter_key = api_key or os.getenv("OPENROUTER_API_KEY")
+        openai_key = api_key or os.getenv("OPENAI_API_KEY")
+        gemini_key = api_key or os.getenv("GEMINI_API_KEY")
+
+        # 1. Si hay clave de Groq configurada, usar Groq (máxima velocidad y cuota gratis generosa)
+        if groq_key and groq_key.strip():
+            prov_key = "groq"
+        # 2. Si Ollama está corriendo en localhost, usar Ollama
+        elif is_ollama_online():
+            prov_key = "ollama"
+        # 3. Si hay clave de OpenRouter, usar OpenRouter
+        elif openrouter_key and openrouter_key.strip():
+            prov_key = "openrouter"
+        # 4. Si hay clave de Gemini, usar Gemini
+        elif gemini_key and gemini_key.strip():
+            prov_key = "gemini"
+        # 5. Si hay clave de OpenAI, usar OpenAI
+        elif openai_key and openai_key.strip():
+            prov_key = "openai"
+        # 6. Fallback a simulador offline si no hay claves ni servicios locales
+        else:
+            return SimulatedAgentLLM(model_name="simulated-agent-v04")
+
+    # Proveedor: Groq Cloud
+    if prov_key == "groq":
+        preset = PROVIDER_PRESETS["groq"]
+        key = api_key or os.getenv("GROQ_API_KEY")
+        if not key or not key.strip():
+            raise ValueError(
+                "Para usar Groq debes configurar la variable GROQ_API_KEY en tu archivo .env "
+                "o pasarla con --api-key. Consigue una clave gratuita en: https://console.groq.com/keys"
+            )
+        target_model = model or preset["default_model"]
+        return OpenAICompatibleLLM(
+            base_url=base_url or preset["base_url"],
+            model=target_model,
+            api_key=key,
+            provider_name="groq",
+            timeout=timeout,
+        )
+
+    # Proveedor: Ollama Local
+    elif prov_key == "ollama":
+        preset = PROVIDER_PRESETS["ollama"]
+        target_url = base_url or os.getenv("OLLAMA_HOST") or preset["base_url"]
+        target_model = model or preset["default_model"]
+        return OpenAICompatibleLLM(
+            base_url=target_url,
+            model=target_model,
+            api_key=api_key or "ollama",
+            provider_name="ollama",
+            timeout=timeout,
+        )
+
+    # Proveedor: OpenRouter
+    elif prov_key == "openrouter":
+        preset = PROVIDER_PRESETS["openrouter"]
+        key = api_key or os.getenv("OPENROUTER_API_KEY")
+        if not key or not key.strip():
+            raise ValueError(
+                "Para usar OpenRouter debes configurar la variable OPENROUTER_API_KEY en tu archivo .env. "
+                "Consigue una clave en: https://openrouter.ai/keys"
+            )
+        target_model = model or preset["default_model"]
+        return OpenAICompatibleLLM(
+            base_url=base_url or preset["base_url"],
+            model=target_model,
+            api_key=key,
+            provider_name="openrouter",
+            timeout=timeout,
+        )
+
+    # Proveedor: LM Studio Local
+    elif prov_key == "lmstudio":
+        preset = PROVIDER_PRESETS["lmstudio"]
+        target_url = base_url or preset["base_url"]
+        target_model = model or preset["default_model"]
+        return OpenAICompatibleLLM(
+            base_url=target_url,
+            model=target_model,
+            api_key="lm-studio",
+            provider_name="lmstudio",
+            timeout=timeout,
+        )
+
+    # Proveedor: OpenAI Oficial o Endpoint Genérico
+    elif prov_key in ("openai", "custom", "openai_compatible"):
+        preset = PROVIDER_PRESETS["openai"]
+        key = api_key or os.getenv("OPENAI_API_KEY")
+        target_url = base_url or preset["base_url"]
+        target_model = model or preset["default_model"]
+        return OpenAICompatibleLLM(
+            base_url=target_url,
+            model=target_model,
+            api_key=key,
+            provider_name=prov_key,
+            timeout=timeout,
+        )
+
+    # Proveedor: Google Gemini
+    elif prov_key == "gemini":
+        key = api_key or os.getenv("GEMINI_API_KEY")
+        if not key or not key.strip():
+            raise ValueError(
+                "Para usar Gemini debes configurar GEMINI_API_KEY en tu .env o usar otro proveedor como "
+                "'--provider groq' o '--provider ollama'."
+            )
+        target_model = model or PROVIDER_PRESETS["gemini"]["default_model"]
+        return GeminiLLM(api_key=key, model=target_model)
+
+    elif prov_key == "simulator":
+        return SimulatedAgentLLM(model_name=model or "simulated-agent-v04")
+
+    else:
+        # Si pasan un proveedor desconocido pero con base_url, asumimos OpenAI-compatible
+        if base_url:
+            return OpenAICompatibleLLM(
+                base_url=base_url,
+                model=model or "custom-model",
+                api_key=api_key,
+                provider_name=prov_key,
+                timeout=timeout,
+            )
+        raise ValueError(
+            f"Proveedor de LLM desconocido: '{provider}'. Opciones válidas: "
+            f"auto, groq, ollama, openrouter, lmstudio, openai, gemini, simulator."
+        )
