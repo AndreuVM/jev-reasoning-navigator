@@ -6,6 +6,7 @@ Segrega las anomalías en tres dimensiones ortogonales:
 3. Riesgo Instrumental: Llamadas repetitivas destructivas, herramientas no autorizadas o sin confirmación.
 """
 
+import json
 from typing import Any, Dict, List, Optional, Set
 from praxeon.domain.models import ActionCandidate
 from praxeon.models.schema import (
@@ -59,20 +60,36 @@ class LoopDetector:
                 culprit_tool = cand_tool
                 explanation_parts.append(f"Reintento idéntico inmediato de la herramienta '{cand_tool}'.")
 
-        # Detección de ciclo n-hop (A -> B -> A)
-        tool_sequence = [s.tool_name for s in recent_steps if s.tool_name]
-        if candidate and candidate.tool_call:
-            tool_sequence.append(candidate.tool_call.tool_name)
+        # Detección de ciclo n-hop (A -> B -> A -> B) con acciones y argumentos equivalentes
+        action_signatures = []
+        for s in recent_steps:
+            if s.tool_name:
+                try:
+                    args_key = json.dumps(s.tool_args or {}, sort_keys=True)
+                except Exception:
+                    args_key = str(s.tool_args or {})
+                action_signatures.append((s.tool_name, args_key))
 
-        if len(tool_sequence) >= 4:
-            # Buscar patrones cíclicos cortos de longitud 2 o 3
-            if tool_sequence[-1] == tool_sequence[-3] and tool_sequence[-2] == tool_sequence[-4]:
-                if tool_sequence[-1] not in ("read_file", "view_file", "list_dir"):
+        if candidate and candidate.tool_call:
+            try:
+                cand_args_key = json.dumps(candidate.tool_call.arguments or {}, sort_keys=True)
+            except Exception:
+                cand_args_key = str(candidate.tool_call.arguments or {})
+            action_signatures.append((candidate.tool_call.tool_name, cand_args_key))
+
+        if len(action_signatures) >= 4:
+            # Buscar patrones cíclicos cortos donde se repiten exactamente las mismas acciones
+            if action_signatures[-1] == action_signatures[-3] and action_signatures[-2] == action_signatures[-4]:
+                cand_tool = action_signatures[-1][0]
+                if cand_tool not in ("read_file", "view_file", "list_dir"):
                     convergence = ConvergenceAnomaly.N_HOP_CYCLE
                     severity = max(severity, 4)
-                    culprit_tool = tool_sequence[-1]
+                    culprit_tool = cand_tool
                     cycle_nodes = [s.id for s in recent_steps[-4:]]
-                    explanation_parts.append(f"Ciclo recurrente cerrado detectado en herramientas: {' -> '.join(tool_sequence[-4:])}.")
+                    explanation_parts.append(
+                        f"Ciclo recurrente cerrado detectado en acciones: "
+                        f"{action_signatures[-4][0]} -> {action_signatures[-3][0]} -> {action_signatures[-2][0]} -> {action_signatures[-1][0]}."
+                    )
 
         # 2. Dimensión de Solidez Empírica (Grounding): Premisas no fundamentadas
         if candidate and candidate.requires_evidence:

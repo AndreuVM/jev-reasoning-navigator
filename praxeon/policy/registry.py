@@ -8,7 +8,7 @@ Sustituye heurísticas hardcodeadas de strings por inspección de descriptores:
 - Permisos de lectura exclusiva (read_only)
 """
 
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 from praxeon.domain.models import RiskAssessment, RiskLevel
 
@@ -51,8 +51,20 @@ class ToolRegistry:
         """Verifica si la herramienta está registrada."""
         return name in self._tools
 
-    def is_observational(self, name: str) -> bool:
-        """Determina si la herramienta es puramente observacional / de lectura."""
+    def is_observational(self, name: str, tool_args: Optional[Dict[str, Any]] = None) -> bool:
+        """Determina si la herramienta o comando es puramente observacional / de lectura."""
+        if name in ("read_file", "view_file", "list_dir", "grep_search", "search_web"):
+            return True
+        if name == "run_command" and tool_args:
+            cmd = str(tool_args.get("command") or "").strip().lower()
+            read_only_prefixes = (
+                "ls", "dir", "type ", "cat ", "head ", "tail ", "get-content",
+                "git status", "git log", "git diff", "git show", "git branch", "git tag",
+                "find ", "findstr ", "grep ", "pwd", "echo ", "where ", "which ",
+                "python --version", "python -v"
+            )
+            if any(cmd == p.strip() or cmd.startswith(p) for p in read_only_prefixes):
+                return True
         spec = self._tools.get(name)
         if not spec:
             return False

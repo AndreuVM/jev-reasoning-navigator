@@ -95,7 +95,7 @@ class JEVProxyMiddleware:
             is_divergent = bool(score.details.get("is_divergent", False))
 
             # Hallazgo 3.4: Descriptores de ToolRegistry en lugar de listas estáticas
-            is_observational = self.registry.is_observational(step.tool_name) if step.tool_name else False
+            is_observational = self.registry.is_observational(step.tool_name, step.tool_args) if step.tool_name else False
             is_terminal = (step.tool_name == "finish")
             is_evasive_finish = False
             has_prior_unexecuted_inspection = False
@@ -118,7 +118,7 @@ class JEVProxyMiddleware:
 
                 # 2. Comprobar si viene en el mismo bloque donde hay acciones de lectura previas
                 has_prior_unexecuted_inspection = any(
-                    self.registry.is_observational(prev_c.tool_name or "")
+                    self.registry.is_observational(prev_c.tool_name or "", prev_c.tool_args)
                     for prev_c in candidate_steps[:idx]
                 )
                 if has_prior_unexecuted_inspection:

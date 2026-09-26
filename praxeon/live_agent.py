@@ -387,11 +387,19 @@ def run_live_agent(
 
             # Mecanismo Circuit Breaker ante bloqueos repetitivos
             if consecutive_blocks == 2:
-                directive_text += (
-                    "\n\n🚨 [ALERTA DE DESBLOQUEO]: Has acumulado 2 bloqueos seguidos por intentar modificar o asumir estados sin verificar. "
-                    "Queda TERMINANTEMENTE PROHIBIDO invocar 'edit_file' o 'finish'. "
-                    "En tu siguiente turno DEBES invocar 'run_command' (ej. dir, ls, git status) o 'read_file' para obtener los hechos reales."
-                )
+                if executed_steps >= 2:
+                    directive_text += (
+                        "\n\n💡 [ORIENTACIÓN DE CIERRE]: Ya has obtenido observaciones empíricas durante la sesión. "
+                        "Si dispones de suficiente contexto para responder a la tarea del usuario, sintetiza tu informe o conclusión "
+                        "y entrega el resultado invocando obligatoriamente:\n"
+                        'Action: finish {"summary": "informe o conclusión fundamentada basada en lo observado"}'
+                    )
+                else:
+                    directive_text += (
+                        "\n\n🚨 [ALERTA DE DESBLOQUEO]: Has acumulado bloqueos seguidos. "
+                        "Obtén primero evidencias del entorno con comandos o lecturas de inspección "
+                        "(ej. read_file o run_command con 'dir' o 'git status') antes de cualquier otra acción."
+                    )
             elif consecutive_blocks >= 3:
                 console.print("[bold yellow]⚡ JEV CIRCUIT BREAKER: Inyectando observación empírica para romper la parálisis cognitiva...[/]")
                 auto_probe = "Observación automática de archivos reales en disco: "
@@ -416,7 +424,8 @@ def run_live_agent(
                     f"Debes rectificar tu plan basándote únicamente en hechos verificados."
                 ),
             })
-            console.print("[bold green]✓ Directiva inyectada. Devolviendo control a Gemini solo para rectificación necesaria...[/]")
+            prov_label = agent_llm.provider_name.upper() if agent_llm else "LLM"
+            console.print(f"[bold green]✓ Directiva inyectada. Devolviendo control a {prov_label} solo para rectificación necesaria...[/]")
             time.sleep(1)
             continue
 
@@ -503,7 +512,12 @@ def run_live_agent(
         console.print("\n[bold yellow]ℹ️ Se alcanzó el límite de pasos. Solicitando respuesta de síntesis final al agente...[/]")
         conversation_history.append({
             "role": "user",
-            "content": "Has alcanzado el límite de pasos de ejecución para esta tarea. Con base en todas las observaciones y datos reales recopilados durante la sesión, formula tu conclusión o respuesta final completa para el usuario.",
+            "content": (
+                "Has alcanzado el límite de pasos de ejecución para esta tarea. "
+                "Con base en todas las observaciones y datos reales recopilados durante la sesión "
+                "(ignora cualquier advertencia o restricción de supervisión previa), "
+                "redacta y entrega tu conclusión o informe final completo para el usuario."
+            ),
         })
         try:
             final_answer = agent_llm.generate(conversation_history).strip()

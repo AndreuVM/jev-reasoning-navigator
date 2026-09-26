@@ -95,10 +95,11 @@ class InterventionPlanner:
             message = (
                 f"[JEV-SUPERVISOR | NIVEL 2 - RETROCESO Y PODA]\n"
                 f"Alerta: {loop_report.explanation if loop_report else 'Bucle o repetición detectada'}.\n"
-                f"ACCIONES PROHIBIDAS: Herramienta '{culprit}' vetada temporalmente para evitar fijación."
+                f"ACCIONES PROHIBIDAS: Herramienta '{culprit}' vetada temporalmente para evitar fijación.\n"
+                f"INSTRUCCIÓN: Si necesitas datos del entorno, varía el enfoque o argumentos; si ya recopilaste información suficiente, invoca 'finish' con tu informe."
             )
             forbidden = [culprit] if culprit else []
-            suggested = "Continuar con un método o herramienta diferente"
+            suggested = "Continuar con un método o herramienta diferente o formular la solución final"
 
         injection = (
             f"<system_intervention level='{level.value}'{extra_attrs}>\n"
